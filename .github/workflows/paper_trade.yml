@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: [base, sr]       # base = 正式模型; sr = 影子模型 (基準+支撐壓力), 各自一台 runner、各自帳本
+        variant: [sr, base]       # sr = 正式 (基準+支撐壓力); base = 影子 (基準 33 特徵). 角色見 scripts/config.py, 各自一台 runner、各自帳本
     runs-on: ubuntu-latest
     timeout-minutes: 330
     env:

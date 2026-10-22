@@ -26,12 +26,13 @@ import requests
 ROOT = Path(__file__).resolve().parent.parent
 TZ = ZoneInfo("Asia/Taipei")
 REPO = "raywu918daytrade/daytrade"
-VARIANT = "base"                      # main() 依 --variant 設定; seq = 影子模型 (K 線序列), 帳本與 HF 路徑分開
+sys.path.insert(0, str(ROOT/"scripts")); import config as CFG
+VARIANT = CFG.MAIN_VARIANT            # main() 依 --variant 設定; 正式變體不帶後綴, 影子變體帳本與 HF 路徑帶 _<variant>
 PAPER = ROOT / "paper"; HF_PREFIX = "db/paper"
 SIGNALS_URL = f"https://huggingface.co/datasets/{REPO}/resolve/main/db/signals/latest.json"
 def set_variant(v):
     global VARIANT, PAPER, HF_PREFIX, SIGNALS_URL
-    VARIANT = v; sfx = "" if v == "base" else "_" + v
+    VARIANT = v; sfx = CFG.suffix(v)
     PAPER = ROOT / ("paper" + sfx); HF_PREFIX = "db/paper" + sfx
     SIGNALS_URL = f"https://huggingface.co/datasets/{REPO}/resolve/main/db/signals/latest{sfx}.json"
 COST_RT = 0.0023          # 來回成本 (券賣手續費+稅+買回手續費), 與回測相同
@@ -239,7 +240,7 @@ class Paper:
             if os.environ.get("HF_TOKEN"):
                 from huggingface_hub import HfApi
                 HfApi(token=os.environ["HF_TOKEN"]).upload_file(path_or_fileobj=str(PAPER/"live.json"), path_in_repo=f"{HF_PREFIX}/live.json", repo_id=REPO, repo_type="dataset",
-                                                               commit_message=f"paper{'' if VARIANT=='base' else ' '+VARIANT} live {snap['date']} {snap['updated_at'][11:]} {status}")
+                                                               commit_message=f"paper{'' if VARIANT==CFG.MAIN_VARIANT else ' '+VARIANT} live {snap['date']} {snap['updated_at'][11:]} {status}")
         except Exception as e:
             log("live.json 上傳失敗:", e)
         return snap
@@ -314,7 +315,7 @@ def publish(date_str, rows, summ):
            CommitOperationAdd(f"{HF_PREFIX}/{date_str}_summary.json", str(PAPER/f"{date_str}_summary.json")),
            CommitOperationAdd(f"{HF_PREFIX}/latest.json", str(PAPER/f"{date_str}_summary.json")),
            CommitOperationAdd(f"{HF_PREFIX}/summary.csv", sio.getvalue().encode("utf-8"))]
-    api.create_commit(repo_id=REPO, repo_type="dataset", operations=ops, commit_message=f"paper{'' if VARIANT=='base' else ' '+VARIANT} {date_str}: {summ['n_filled']} filled, net {summ['sim_avg_net_pct']}%")
+    api.create_commit(repo_id=REPO, repo_type="dataset", operations=ops, commit_message=f"paper{'' if VARIANT==CFG.MAIN_VARIANT else ' '+VARIANT} {date_str}: {summ['n_filled']} filled, net {summ['sim_avg_net_pct']}%")
     log(f"已上傳 {HF_PREFIX}/ ({date_str}), 累計 {len(hist)} 天")
 
 def main():
@@ -322,7 +323,7 @@ def main():
     ap.add_argument("--env-file", action="append", default=[]); ap.add_argument("--dry", action="store_true", help="登入+讀名單+查合約, 不下單不等待")
     ap.add_argument("--signals", default=None, help="本機 signals/<date>.csv (預設抓 HF latest.json)"); ap.add_argument("--publish", action="store_true")
     ap.add_argument("--date", default=None, help="覆寫日期 (測試用)"); ap.add_argument("--force-trade", action="store_true", help="忽略 no_trade 仍下單 (測試用)")
-    ap.add_argument("--variant", default="base", choices=["base","seq","sr"], help="影子模型名單 (latest_<variant>.json), 帳本 paper_<variant>/, HF db/paper_<variant>/")
+    ap.add_argument("--variant", default=CFG.MAIN_VARIANT, choices=CFG.VARIANTS, help=f"正式={CFG.MAIN_VARIANT}: latest.json/paper/; 其他: latest_<variant>.json, paper_<variant>/, HF db/paper_<variant>/")
     a = ap.parse_args(); set_variant(a.variant)
     for f in a.env_file: load_env_file(f)
     if not os.environ.get("SINOPAC_API_KEY") or not os.environ.get("SINOPAC_SECRET_KEY"): sys.exit("缺少 SINOPAC_API_KEY / SINOPAC_SECRET_KEY")
@@ -394,7 +395,7 @@ def main():
     time.sleep(3); pt.push_live("closing")
     log("收盤前回補單已送出, 等成交到 13:35 ...")
     sleep_until(at(*END_T))
-    rows = pt.settle(); summ = summarize(rows, d, no_trade, "simulation" + ("" if VARIANT == "base" else f" ({VARIANT})"))
+    rows = pt.settle(); summ = summarize(rows, d, no_trade, f"simulation ({VARIANT})")
     with open(PAPER/f"{d}_trades.csv", "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0].keys()) if rows else ["date"]); w.writeheader(); w.writerows(rows)
     json.dump(summ, open(PAPER/f"{d}_summary.json", "w"), ensure_ascii=False, indent=1)

@@ -11,6 +11,7 @@ from pathlib import Path
 import numpy as np, pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import features as F
+import config as CFG
 
 ROOT = Path(__file__).resolve().parent.parent
 REPO = "raywu918daytrade/daytrade"
@@ -77,7 +78,7 @@ def main():
     ap.add_argument("--max-per-stock", type=float, default=600_000); ap.add_argument("--max-price", type=float, default=MAX_PRICE)
     ap.add_argument("--max-n", type=int, default=10); ap.add_argument("--min-amount", type=float, default=100_000, help="單檔金額低於此不做 (避免零頭部位)")
     ap.add_argument("--no-daytrade-filter", action="store_true", help="不過濾現股當沖先賣後買資格 (對照用)")
-    ap.add_argument("--variant", default="base", choices=["base","seq","sr"], help="影子模型: sr = 基準+支撐壓力 (models/lgbm_Bsr_pool_*), seq = 基準+K線序列; 輸出檔名加 _<variant>")
+    ap.add_argument("--variant", default=CFG.MAIN_VARIANT, choices=CFG.VARIANTS, help=f"模型變體 (base=基準33特徵, sr=基準+支撐壓力, seq=基準+K線序列). 正式={CFG.MAIN_VARIANT} 輸出不帶後綴, 其他輸出檔名加 _<variant>")
     a = ap.parse_args()
     if a.refresh: refresh_d1(a.months)
 
@@ -125,7 +126,7 @@ def main():
     FEATS = F.D1_FEATS
     if a.variant == "seq": f = f.merge(F.build_seq(base_df), on=["stock_id","date"], how="left")
     FEATS = F.D1_FEATS + F.shadow_feats(a.variant)
-    sfx = "" if a.variant == "base" else "_" + a.variant
+    sfx = CFG.suffix(a.variant)
     t = f[f.date == tdate].copy()
     if len(t) == 0: sys.exit("目標日沒有任何資料")
     t = t.merge(d1[d1.date == tdate][["stock_id","name"]].drop_duplicates("stock_id"), on="stock_id", how="left")
@@ -160,7 +161,7 @@ def main():
     pool.loc[pool.open > a.max_price, "flag"] += f"股價>{a.max_price:.0f} "
     elig = pool[pool.flag == ""].copy()
 
-    header = [f"日期 {tdate.date()}  開盤價來源: {source}  模型: {Path(mpath).name}" + (f"  [影子模型 {a.variant}]" if a.variant != "base" else ""),
+    header = [f"日期 {tdate.date()}  開盤價來源: {source}  模型: {Path(mpath).name}" + (f"  [影子 {a.variant}]" if a.variant != CFG.MAIN_VARIANT else ""),
               f"池 {len(pool)} 檔 (dv20≥5億, ATR20≥3%)；大盤平均跳空 {mkt_gap*100:+.2f}%；上漲比例 {t[t.dv20>=1e8].gap.gt(0).mean()*100:.0f}%"]
     if dt_note: header.append(dt_note)
     no_trade = []
