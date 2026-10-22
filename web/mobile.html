@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>當沖做空名單</title>
+<meta name="description" content="每日當沖做空候選名單 (雲端自動產生, 讀 HF dataset db/signals/latest.json)">
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--fg:#1c1f26;--muted:#6b7280;--line:#e5e7eb;--accent:#2563eb;--red:#dc2626;--green:#16a34a;--amber:#d97706;--chip:#eef2ff}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#0f1115;--card:#171a21;--fg:#e6e8ee;--muted:#9aa3b2;--line:#2a2f3a;--accent:#60a5fa;--red:#f87171;--green:#4ade80;--amber:#fbbf24;--chip:#1e2536}}
+:root[data-theme=dark]{--bg:#0f1115;--card:#171a21;--fg:#e6e8ee;--muted:#9aa3b2;--line:#2a2f3a;--accent:#60a5fa;--red:#f87171;--green:#4ade80;--amber:#fbbf24;--chip:#1e2536}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 -apple-system,"PingFang TC","Noto Sans TC",system-ui,sans-serif;-webkit-text-size-adjust:100%}
+header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);background:var(--card);position:sticky;top:0;z-index:2}
+h1{font-size:17px;margin:0}main{padding:12px 16px 32px;max-width:720px;margin:0 auto}
+.cards{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px}.card .k{color:var(--muted);font-size:12px}.card .v{font-size:19px;font-weight:600;margin-top:2px}
+.banner{padding:12px 14px;border-radius:10px;margin-bottom:12px;font-weight:600;font-size:16px}.banner.go{background:color-mix(in srgb,var(--green) 15%,transparent);color:var(--green)}.banner.stop{background:color-mix(in srgb,var(--red) 15%,transparent);color:var(--red)}.banner.wait{background:color-mix(in srgb,var(--amber) 15%,transparent);color:var(--amber)}
+.list{display:flex;flex-direction:column;gap:10px}
+.pick{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.pick .top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.pick .id{font-size:18px;font-weight:700}.pick .nm{font-size:15px;margin-left:6px}.pick .rk{color:var(--muted);font-size:12px}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px 10px;margin-top:8px}
+.grid .k{color:var(--muted);font-size:11px}.grid .v{font-size:15px;font-weight:600;font-variant-numeric:tabular-nums}
+.grid .v.big{font-size:17px}.pos{color:var(--red)}.neg{color:var(--green)}
+.cover{margin-top:8px;padding:8px 10px;border-radius:8px;background:color-mix(in srgb,var(--red) 10%,transparent);display:flex;justify-content:space-between;font-size:14px}
+.cover b{font-size:16px;font-variant-numeric:tabular-nums}
+.wrap{overflow-x:auto;margin-top:16px}table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden;font-size:13px}
+th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}th{color:var(--muted);font-weight:600;background:var(--card)}
+td:first-child,th:first-child,td:nth-child(2),th:nth-child(2){text-align:left}
+.muted{color:var(--muted);font-size:12px}button{background:var(--accent);color:#fff;border:0;border-radius:8px;padding:7px 12px;font-weight:600;font-size:14px}
+input[type=date]{background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:14px}
+h2{font-size:15px;margin:18px 0 8px}footer{color:var(--muted);font-size:12px;padding:16px;text-align:center;line-height:1.7}
+details summary{cursor:pointer;color:var(--accent);font-size:14px}
+</style></head><body>
+<header><h1>當沖做空名單</h1><button id="btnReload">重新整理</button></header>
+<main>
+  <div id="banner" class="banner wait">載入中…</div>
+  <div class="cards">
+    <div class="card"><div class="k">名單日期</div><div class="v" id="cDate">–</div></div>
+    <div class="card"><div class="k">大盤平均跳空</div><div class="v" id="cMkt">–</div></div>
+    <div class="card"><div class="k">池 / 選入</div><div class="v" id="cCnt">–</div></div>
+    <div class="card"><div class="k">投入金額</div><div class="v" id="cAmt">–</div></div>
+  </div>
+  <div id="picks" class="list"></div>
+  <details style="margin-top:14px"><summary>表格檢視</summary>
+    <div class="wrap"><table><thead><tr><th>代號</th><th>名稱</th><th>開盤</th><th>張數</th><th>金額</th><th>強制回補</th><th>漲停</th></tr></thead><tbody id="tbody"></tbody></table></div>
+  </details>
+  <h2>查看其他日期</h2>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><input type="date" id="dateIn"><button id="btnDate">載入</button><button id="btnLatest" style="background:transparent;color:var(--accent);border:1px solid var(--accent)">回最新</button></div>
+  <p class="muted" id="meta"></p>
+  <p class="muted">出場規則: 13:30 收盤競價回補；盤中成交價 ≥ 強制回補價 (昨收 +8%) 立即市價回補；無其他停利停損。</p>
+</main>
+<footer>資料來源: HF dataset raywu918daytrade/daytrade · db/signals · 由 GitHub Actions 每個平日 09:01 自動產生</footer>
+<script>
+const BASE = "https://huggingface.co/datasets/raywu918daytrade/daytrade/resolve/main/db/signals/";
+const qs = new URLSearchParams(location.search);
+const SRC = qs.get("src");               // 測試用: ?src=本機 json 網址
+const fmt = (x, d=2) => (x==null||isNaN(x)) ? "–" : Number(x).toLocaleString("zh-TW",{minimumFractionDigits:d,maximumFractionDigits:d});
+const money = x => (x==null) ? "–" : Math.round(x).toLocaleString("zh-TW");
+const $ = id => document.getElementById(id);
+const dowName = d => "日一二三四五六"[new Date(d+"T00:00:00").getDay()];
+function pctCls(v){ return v>0 ? "pos" : v<0 ? "neg" : ""; }
+
+async function load(date){
+  const url = SRC ? SRC : BASE + (date ? `${date}.json` : "latest.json") + "?t=" + Date.now();
+  $("banner").className="banner wait"; $("banner").textContent="載入中…";
+  let j;
+  try{
+    const r = await fetch(url, {cache:"no-store"});
+    if(!r.ok) throw new Error(`HTTP ${r.status}` + (date ? ` (${date} 沒有名單)` : ""));
+    j = await r.json();
+  }catch(e){ $("banner").className="banner stop"; $("banner").textContent="讀取失敗: " + e.message; return; }
+  render(j);
+}
+
+function render(j){
+  const noTrade = (j.no_trade||[]).length>0;
+  $("banner").className = "banner " + (noTrade ? "stop" : "go");
+  $("banner").textContent = noTrade ? ("今日不交易: " + j.no_trade.join("；") + " (名單僅供參考)") : `可交易 · ${j.date} (週${dowName(j.date)})`;
+  $("cDate").textContent = j.date + " 週" + dowName(j.date);
+  const mg = j.mkt_gap==null ? null : j.mkt_gap*100;
+  $("cMkt").textContent = mg==null ? "–" : (mg>0?"+":"") + fmt(mg) + "%"; $("cMkt").className = "v " + pctCls(mg);
+  $("cCnt").textContent = `${j.pool_n ?? "–"} / ${j.n_picks}`;
+  $("cAmt").textContent = money(j.total_amount) + " 元";
+  const picks = j.picks || [];
+  $("picks").innerHTML = picks.length ? picks.map(p => `
+    <div class="pick">
+      <div class="top"><div><span class="id">${p.stock_id}</span><span class="nm">${p.name ?? ""}</span></div><div class="rk">池內排名 ${p.rank} · 分數 ${fmt(p.pred_pct)}%</div></div>
+      <div class="grid">
+        <div><div class="k">開盤</div><div class="v big">${fmt(p.open)}</div></div>
+        <div><div class="k">張數</div><div class="v big">${p.lots}</div></div>
+        <div><div class="k">金額</div><div class="v big">${money(p.amount)}</div></div>
+        <div><div class="k">昨收</div><div class="v">${fmt(p.prev_close)}</div></div>
+        <div><div class="k">跳空</div><div class="v ${pctCls(p.gap_pct)}">${p.gap_pct>0?"+":""}${fmt(p.gap_pct)}%</div></div>
+        <div><div class="k">ATR20</div><div class="v">${fmt(p.atr20_pct,1)}%</div></div>
+      </div>
+      <div class="cover"><span>強制回補價 (昨收+8%) <b>${fmt(p.force_cover)}</b></span><span>漲停 <b>${fmt(p.limit_up)}</b></span></div>
+    </div>`).join("") : `<div class="pick muted">沒有符合條件的候選</div>`;
+  $("tbody").innerHTML = picks.map(p => `<tr><td>${p.stock_id}</td><td>${p.name ?? ""}</td><td>${fmt(p.open)}</td><td>${p.lots}</td><td>${money(p.amount)}</td><td>${fmt(p.force_cover)}</td><td>${fmt(p.limit_up)}</td></tr>`).join("");
+  $("meta").textContent = `開盤價來源: ${j.source ?? "–"} · 模型: ${j.model ?? "–"} · 發布時間: ${j.published_at ?? "–"}`;
+  if(j.date) $("dateIn").value = j.date;
+}
+
+$("btnReload").onclick = () => load($("dateIn").value && $("dateIn").value !== lastLatest ? $("dateIn").value : null);
+$("btnDate").onclick = () => load($("dateIn").value || null);
+$("btnLatest").onclick = () => load(null);
+let lastLatest = null;
+load(qs.get("date") || null).then(() => { lastLatest = $("dateIn").value; });
+document.addEventListener("visibilitychange", () => { if(document.visibilityState==="visible" && !$("dateIn").value) load(null); });
+</script>
+</body></html>

@@ -1,0 +1,54 @@
+name: Daily signals (TWSE 09:01)
+on:
+  schedule:
+    # 平日台灣 09:01 = UTC 01:01 (GitHub cron 可能延遲數分鐘; 開盤價不會變, 晚到仍正確)
+    - cron: "1 1 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      months:
+        description: "從 HF 抓最近幾個月 D1"
+        default: "6"
+      date:
+        description: "回放日期 YYYY-MM-DD (留空=今天即時)"
+        default: ""
+concurrency:
+  group: daily-signals
+  cancel-in-progress: false
+jobs:
+  signals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TZ: Asia/Taipei
+      HF_HUB_DISABLE_PROGRESS_BARS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        run: pip install -q "pandas>=2.2" pyarrow "lightgbm>=4.3" "huggingface_hub>=0.25" requests numpy
+      - name: Download D1 (last N months) + info and rebuild d1.parquet
+        run: |
+          MONTHS="${{ github.event.inputs.months }}"; MONTHS="${MONTHS:-6}"
+          python3 - "$MONTHS" <<'PY'
+          import sys; sys.path.insert(0, "scripts")
+          from daily_candidates import refresh_d1
+          refresh_d1(int(sys.argv[1]))
+          PY
+      - name: Generate today's candidates (fetch opens from TWSE MIS)
+        run: |
+          D="${{ github.event.inputs.date }}"
+          if [ -n "$D" ]; then python3 scripts/daily_candidates.py --date "$D"; else python3 scripts/daily_candidates.py; fi
+      - name: Publish to HF db/signals
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: python3 scripts/publish_signals.py
+      - name: Upload signals as run artifact (backup)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: signals
+          path: signals/
+          if-no-files-found: ignore
+          retention-days: 30

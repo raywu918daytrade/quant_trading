@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>當沖做空名單</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--fg:#1c1f26;--muted:#6b7280;--line:#e5e7eb;--accent:#2563eb;--red:#dc2626;--green:#16a34a;--amber:#d97706;--chip:#eef2ff}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#0f1115;--card:#171a21;--fg:#e6e8ee;--muted:#9aa3b2;--line:#2a2f3a;--accent:#60a5fa;--red:#f87171;--green:#4ade80;--amber:#fbbf24;--chip:#1e2536}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,"PingFang TC","Noto Sans TC",system-ui,sans-serif}
+header{display:flex;align-items:center;gap:16px;padding:14px 20px;border-bottom:1px solid var(--line);background:var(--card);position:sticky;top:0;z-index:2;flex-wrap:wrap}
+h1{font-size:18px;margin:0}main{padding:16px 20px;max-width:1400px;margin:0 auto}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}.card .k{color:var(--muted);font-size:12px}.card .v{font-size:20px;font-weight:600;margin-top:2px}
+.banner{padding:12px 16px;border-radius:10px;margin-bottom:16px;font-weight:600}.banner.go{background:color-mix(in srgb,var(--green) 15%,transparent);color:var(--green)}.banner.stop{background:color-mix(in srgb,var(--red) 15%,transparent);color:var(--red)}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+button{background:var(--accent);color:#fff;border:0;border-radius:8px;padding:8px 14px;font-weight:600;cursor:pointer}button.sec{background:transparent;color:var(--accent);border:1px solid var(--accent)}button:disabled{opacity:.5;cursor:default}
+select,input{background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:7px 10px}
+table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}th{color:var(--muted);font-weight:600;cursor:pointer;user-select:none;background:var(--card)}
+td:first-child,th:first-child,td:nth-child(2),th:nth-child(2){text-align:left}tr:hover td{background:color-mix(in srgb,var(--accent) 6%,transparent)}
+.pos{color:var(--red)}.neg{color:var(--green)}.chip{display:inline-block;background:var(--chip);border-radius:6px;padding:1px 7px;font-size:12px;margin-right:4px}
+h2{font-size:15px;margin:22px 0 10px;display:flex;align-items:center;gap:10px}h2 small{color:var(--muted);font-weight:400}
+pre{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px;max-height:320px;overflow:auto;font-size:12px;white-space:pre-wrap}
+.wrap{overflow-x:auto}details summary{cursor:pointer;color:var(--accent)}.muted{color:var(--muted)}
+footer{color:var(--muted);font-size:12px;padding:20px;text-align:center}
+</style></head><body>
+<header>
+  <h1>當沖做空名單</h1>
+  <div class="row">
+    <label class="muted">日期</label><select id="dateSel"></select>
+    <span id="autoState" class="muted">自動排程：載入中…</span>
+    <span id="jobState" class="muted"></span>
+  </div>
+</header>
+<main>
+  <div class="cards">
+    <div class="card"><div class="k">名單日期</div><div class="v" id="cDate">–</div></div>
+    <div class="card"><div class="k">本地 D1 最後日</div><div class="v" id="cD1">–</div></div>
+    <div class="card"><div class="k">大盤平均跳空</div><div class="v" id="cMkt">–</div></div>
+    <div class="card"><div class="k">池 / 合格 / 選入</div><div class="v" id="cCnt">–</div></div>
+    <div class="card"><div class="k">投入金額</div><div class="v" id="cAmt">–</div></div>
+    <div class="card"><div class="k">模型</div><div class="v" id="cModel" style="font-size:13px">–</div></div>
+  </div>
+  <div id="banner" class="banner go" style="display:none"></div>
+  <h2>今日名單 <small>09:00~09:02 分批現沖券賣 · 13:30 收盤競價回補 · 觸及強制回補價立即市價回補</small></h2>
+  <div class="wrap"><table id="picks"><thead></thead><tbody></tbody></table></div>
+  <h2>整個池 <small>點欄位排序；旗標為被濾掉的原因</small> <input id="poolFilter" placeholder="搜尋代號/名稱" style="margin-left:auto"></h2>
+  <div class="wrap"><table id="pool"><thead></thead><tbody></tbody></table></div>
+  <h2>自動排程 <small>平日 08:30 更新 D1、09:01 產生名單（launchd）；頁面每分鐘自動更新</small></h2>
+  <div class="cards" id="autoCards"></div>
+  <details><summary>手動執行（備援）</summary>
+    <div class="row" style="margin:10px 0">
+      <button class="sec" id="btnRefresh" title="從 HF 更新最新 D1 (盤前)">更新 D1</button>
+      <button id="btnRun" title="09:01 後: 抓證交所開盤價並產生今日名單">產生今日名單</button>
+      <button class="sec" id="btnReplay" title="用歷史開盤價回放所選日期">回放所選日期</button>
+    </div>
+    <pre id="log" class="muted">尚未執行</pre>
+  </details>
+  <details><summary>原始輸出 (txt)</summary><pre id="txt"></pre></details>
+</main>
+<footer>規則：池 = 20日均成交額≥5億 & ATR20≥3% · 濾：週一不做、大盤跳空≥-1%、個股跳空≤4%、股價≤300 · 每檔上限 60 萬，往下填滿 300 萬 · 不設停利停損</footer>
+<script>
+const $=s=>document.querySelector(s); let status={}, cur=null, sortState={};
+const fmt=(v,d=2)=>v===""||v==null||isNaN(v)?"":Number(v).toLocaleString("zh-TW",{minimumFractionDigits:d,maximumFractionDigits:d});
+const pct=v=>v===""||v==null?"":`<span class="${v>0?'pos':v<0?'neg':''}">${v>0?'+':''}${fmt(v)}%</span>`;
+async function loadStatus(){status=await (await fetch("/api/status")).json(); $("#cD1").textContent=status.d1_last; $("#cModel").textContent=status.model||"–";
+  const sel=$("#dateSel"); sel.innerHTML=status.dates.map(d=>`<option>${d}</option>`).join(""); if(status.dates.length){sel.value=cur&&status.dates.includes(cur)?cur:status.dates[0]; loadSignal(sel.value);} }
+async function loadSignal(d){cur=d; const r=await fetch("/api/signal/"+d); if(!r.ok)return; const s=await r.json(); const m=s.meta||{};
+  $("#cDate").textContent=d; $("#cMkt").innerHTML=m.mkt_gap!=null?pct(m.mkt_gap*100):"–";
+  const elig=s.pool.filter(p=>p.elig===true||p.elig==="True").length; $("#cCnt").textContent=`${s.pool.length} / ${elig} / ${s.picks.length}`;
+  const amt=s.picks.reduce((a,p)=>a+Number(p["金額"]||0),0); $("#cAmt").textContent=amt?fmt(amt,0):"–";
+  const b=$("#banner"); if(m.no_trade&&m.no_trade.length){b.className="banner stop";b.textContent="今日不交易："+m.no_trade.join("；")+"（名單僅供參考）";b.style.display="";}
+  else{b.className="banner go";b.textContent=`可交易 · ${s.picks.length} 檔 · ${fmt(amt,0)} 元 · 開盤價來源 ${m.source||""}`;b.style.display="";}
+  renderPicks(s.picks); renderPool(s.pool); $("#txt").textContent=s.txt||""; }
+const PICK_COLS=[["stock_id","代號"],["name","名稱"],["昨收","昨收"],["開盤","開盤"],["跳空%","跳空"],["ATR20%","ATR20"],["20日均額(億)","20日均額(億)"],["模型分數%","模型分數"],["池內排名","排名"],["張數","張數"],["金額","金額"],["強制回補價(昨收+8%)","強制回補價"],["漲停價","漲停價"]];
+function renderPicks(rows){const t=$("#picks"); t.querySelector("thead").innerHTML="<tr>"+PICK_COLS.map(c=>`<th>${c[1]}</th>`).join("")+"</tr>";
+  t.querySelector("tbody").innerHTML=rows.length?rows.map(r=>"<tr>"+PICK_COLS.map(([k])=>{let v=r[k]; if(k==="跳空%"||k==="模型分數%")return`<td>${pct(v)}</td>`; if(k==="金額")return`<td>${fmt(v,0)}</td>`; if(k==="張數"||k==="池內排名")return`<td>${v}</td>`; if(k==="stock_id"||k==="name")return`<td>${v}</td>`; if(k==="強制回補價(昨收+8%)")return`<td><b class="pos">${fmt(v)}</b></td>`; return`<td>${fmt(v)}</td>`;}).join("")+"</tr>").join(""):`<tr><td colspan="${PICK_COLS.length}" class="muted" style="text-align:center">沒有符合條件的候選</td></tr>`;}
+const POOL_COLS=[["stock_id","代號"],["name","名稱"],["prev_close","昨收"],["open","開盤"],["gap","跳空"],["atr20","ATR20"],["dv20_prev","20日均額(億)"],["pred","模型分數"],["rank_all","排名"],["flag","旗標"]];
+let poolRows=[];
+function renderPool(rows){poolRows=rows; const t=$("#pool"); t.querySelector("thead").innerHTML="<tr>"+POOL_COLS.map(c=>`<th data-k="${c[0]}">${c[1]}</th>`).join("")+"</tr>";
+  t.querySelectorAll("th").forEach(th=>th.onclick=()=>{const k=th.dataset.k; sortState={k,asc:sortState.k===k?!sortState.asc:true}; drawPool();}); drawPool();}
+function drawPool(){let rows=[...poolRows]; const q=$("#poolFilter").value.trim(); if(q)rows=rows.filter(r=>String(r.stock_id).includes(q)||String(r.name).includes(q));
+  if(sortState.k){const k=sortState.k; rows.sort((a,b)=>{const x=a[k],y=b[k]; const nx=parseFloat(x),ny=parseFloat(y); const c=(!isNaN(nx)&&!isNaN(ny))?nx-ny:String(x).localeCompare(String(y)); return sortState.asc?c:-c;});}
+  $("#pool tbody").innerHTML=rows.map(r=>{const el=(r.elig===true||r.elig==="True"); return `<tr style="${el?'':'opacity:.55'}">`+POOL_COLS.map(([k])=>{let v=r[k]; if(k==="gap"||k==="pred")return`<td>${pct(v*100)}</td>`; if(k==="atr20")return`<td>${fmt(v*100)}%</td>`; if(k==="dv20_prev")return`<td>${fmt(v/1e8,1)}</td>`; if(k==="flag")return`<td style="text-align:left">${String(v).trim().split(" ").filter(Boolean).map(f=>`<span class="chip">${f}</span>`).join("")}</td>`; if(k==="stock_id"||k==="name"||k==="rank_all")return`<td>${v}</td>`; return`<td>${fmt(v)}</td>`;}).join("")+"</tr>";}).join("");}
+$("#poolFilter").oninput=drawPool; $("#dateSel").onchange=e=>loadSignal(e.target.value);
+async function runJob(body,label){[...document.querySelectorAll("button")].forEach(b=>b.disabled=true); $("#jobState").textContent=label+" 執行中…"; $("#log").textContent="";
+  const {job}=await (await fetch("/api/run",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})).json();
+  const poll=async()=>{const j=await (await fetch("/api/job/"+job)).json(); $("#log").textContent=j.log||""; $("#log").scrollTop=1e9;
+    if(j.status==="running")return setTimeout(poll,800); $("#jobState").textContent=j.status==="done"?label+" 完成":label+" 失敗（看執行紀錄）"; [...document.querySelectorAll("button")].forEach(b=>b.disabled=false);
+    if(body.date)cur=body.date; else cur=null; await loadStatus(); if(!body.date&&status.dates.length)loadSignal(status.dates[0]);}; poll();}
+$("#btnRefresh").onclick=()=>runJob({refresh:true,date:status.d1_last},"更新 D1");
+$("#btnRun").onclick=()=>runJob({},"產生今日名單");
+$("#btnReplay").onclick=()=>runJob({date:$("#dateSel").value||status.d1_last},"回放");
+async function loadAuto(){const j=await (await fetch("/api/auto")).json(); const ok=Object.values(j).every(x=>x.installed);
+  $("#autoState").textContent=ok?"自動排程：已啟用":"自動排程：未安裝（scripts/install_schedule.sh install）";
+  $("#autoCards").innerHTML=Object.values(j).map(x=>`<div class="card"><div class="k">${x.label} · ${x.installed?"已啟用":"未安裝"}</div><div class="v" style="font-size:13px">最近執行 ${x.last_log_time||"—"}</div><div class="muted" style="font-size:12px;white-space:pre-wrap;margin-top:4px">${(x.tail||[]).slice(-2).join("\n")}</div></div>`).join("");}
+loadStatus(); loadAuto();
+setInterval(async()=>{const before=status.dates?.[0]; const r=await (await fetch("/api/status")).json(); if(r.dates?.[0]!==before){cur=null; await loadStatus();} loadAuto();}, 60000);
+</script></body></html>

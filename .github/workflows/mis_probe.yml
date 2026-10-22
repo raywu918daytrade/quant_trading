@@ -1,0 +1,24 @@
+name: MIS probe (test TWSE access from GitHub runner)
+on:
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q pandas numpy requests
+      - name: Fetch 5 opens from mis.twse.com.tw
+        run: |
+          python3 - <<'PY'
+          import sys; sys.path.insert(0, "scripts")
+          from daily_candidates import fetch_twse_opens
+          ids = ["2330", "2317", "2454", "6488", "3105"]
+          mk  = ["twse", "twse", "twse", "tpex", "tpex"]
+          df = fetch_twse_opens(ids, mk)
+          print(df.to_string())
+          assert len(df) == 5, f"expected 5 rows, got {len(df)} -> MIS blocked or empty"
+          PY

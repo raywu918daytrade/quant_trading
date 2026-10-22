@@ -1,0 +1,13 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "signals-web",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "scripts/webapp.py"
+      ],
+      "port": 8787
+    }
+  ]
+}
