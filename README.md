@@ -209,10 +209,11 @@ GitHub Actions (平日 UTC 01:01 = 台灣 09:01, .github/workflows/daily_signals
   → 從 HF 抓最近 6 個月 db/d1 + db/info/info.parquet, 重建 data/processed/d1.parquet  (daily_candidates.refresh_d1(6))
   → scripts/daily_candidates.py (向證交所 MIS 抓約 560 檔開盤價, 跑模型, 寫 signals/<date>.*)
   → scripts/publish_signals.py (上傳 signals/<date>.* 到 HF db/signals/, 並寫 <date>.json 與 latest.json)
-手機: 開 https://raywu918daytrade.github.io/quant_trading/web/mobile.html (GitHub Pages, 加到主畫面即可), 它直接 fetch
+手機: 開 https://quant.just1stock.com/ (自訂網域, 根目錄自動跳到 web/mobile.html; 備用網址 https://raywu918daytrade.github.io/quant_trading/web/mobile.html), 它直接 fetch
   https://huggingface.co/datasets/raywu918daytrade/daytrade/resolve/main/db/signals/latest.json
   (HF 的 CORS 允許瀏覽器直接讀; ?date=YYYY-MM-DD 可看歷史名單)
 ```
+- 自訂網域: GoDaddy 的 just1stock.com 加 CNAME `quant` → `raywu918daytrade.github.io`；repo 根目錄 `CNAME` 檔寫 `quant.just1stock.com`，Pages 設定 custom domain + Enforce HTTPS。
 - GitHub repo: https://github.com/raywu918daytrade/quant_trading (公開; data/ logs/ signals/ 不進版控)。改了 scripts/ 或 models/ 要 push 才會生效。push 含 workflow 的 commit 需要 gh token 有 `workflow` scope (目前只有 raywu918python 有, 它是協作者)。
 - 已驗證 (2026-10-23): GitHub runner 可連 mis.twse.com.tw (mis_probe)；用 date=2026-10-22 回放跑完整 workflow，結果與本機一致，HF 上出現 db/signals/latest.json。
 - 需要 60 個交易日以上歷史 (ret60/ma60)，所以雲端抓 6 個月 D1；`--refresh --months N` 可調。
