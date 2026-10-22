@@ -218,7 +218,8 @@ GitHub Actions (平日 UTC 01:01 = 台灣 09:01, .github/workflows/daily_signals
 - 需要 60 個交易日以上歷史 (ret60/ma60)，所以雲端抓 6 個月 D1；`--refresh --months N` 可調。
 - `HF_TOKEN` 放 GitHub repo Settings → Secrets → Actions；必須是對 `raywu918daytrade/daytrade` 有寫入權的 token。workflow 不會印出 token。
 - `.github/workflows/mis_probe.yml`: 手動觸發，只抓 5 檔開盤價，用來驗證 GitHub runner 能連到 `mis.twse.com.tw`。
-- GitHub cron 可能延遲 3~15 分鐘；開盤價不會變，晚到的名單仍正確，只是進場延遲 (見「進場延遲敏感度」)。
+- 準時觸發: cron-job.org (job 「quant_trading daily signals 09:01」) 每個平日台灣 09:01 打 GitHub `workflow_dispatch`，秒級準時；`scripts/setup_cronjob.py --env-file .env --test` 可重建/更新該 job (需要 cron-job.org API key 與 raywu918python 的 GitHub token, 只給 Actions 寫入權)。
+- GitHub 自己的 cron 改為台灣 09:15 當備援 (可能延遲 3~15 分鐘)；同一天跑兩次結果相同，只是覆寫同一份檔案。
 - 假日/非盤中: MIS 回前一交易日的日期，`daily_candidates.py` 會拒絕產生名單 (exit 非 0)，workflow 顯示失敗、`latest.json` 維持上一次名單，屬預期行為。
 - 手動補跑: GitHub → Actions → Daily signals → Run workflow (可填 `date` 回放歷史日)。
 

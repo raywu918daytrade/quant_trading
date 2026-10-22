@@ -1,8 +1,9 @@
 name: Daily signals (TWSE 09:01)
 on:
   schedule:
-    # 平日台灣 09:01 = UTC 01:01 (GitHub cron 可能延遲數分鐘; 開盤價不會變, 晚到仍正確)
-    - cron: "1 1 * * 1-5"
+    # 備援: 平日台灣 09:15 = UTC 01:15。主線是 cron-job.org 於 09:01 準時打 workflow_dispatch (scripts/setup_cronjob.py)。
+    # GitHub cron 本身可能延遲數分鐘; 跑兩次結果相同 (開盤價不會變), 只是覆寫同一份檔案。
+    - cron: "15 1 * * 1-5"
   workflow_dispatch:
     inputs:
       months:
