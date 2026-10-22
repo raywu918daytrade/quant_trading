@@ -30,3 +30,23 @@
 [pid:19685] 2026-10-22T18:52:43.515782Z  INFO shioaji::contracts_v2::traffic: contract disk cache cache="hit" block="info" region=TW security_type=STK bytes=86733
 [pid:19685] 2026-10-22T18:52:43.649256Z  INFO shioaji::api::token_pool: Removed invalid token from slot 1
 [pid:19685] 2026-10-22T18:52:43.650166Z  INFO shioaji::api: msg receiver error: Closed
+[pid:19995] 2026-10-22T18:57:28.711679Z  INFO shioaji::api::api_v1::auth::token_login: No cached token available, performing new login
+[pid:19995] 2026-10-22T18:57:29.122726Z  INFO shioaji::api::api_v1::auth::token_login: Stored new token in slot 1
+[pid:19995] 2026-10-22T18:57:29.465091Z  INFO shioaji::api::token_pool: Removed invalid token from slot 1
+[pid:19995] 2026-10-22T18:57:29.466401Z  INFO shioaji::api: msg receiver error: Closed
+[pid:20073] 2026-10-22T18:58:16.675340Z  INFO shioaji::api::api_v1::auth::token_login: No cached token available, performing new login
+[pid:20073] 2026-10-22T18:58:16.987281Z  INFO shioaji::api::api_v1::auth::token_login: Stored new token in slot 1
+[pid:20073] 2026-10-22T18:58:17.030291Z  WARN _core::api::portf::account_balance: account_balance: simulation mode, returning default
+[pid:20073] 2026-10-22T18:58:17.030419Z  WARN _core::api::portf::settlements: settlements: simulation mode, returning default
+[pid:20073] 2026-10-22T18:58:17.030434Z  WARN _core::api::portf::margin: margin: simulation mode, returning default
+[pid:20073] 2026-10-22T18:58:17.030446Z  WARN _core::api::portf::profit_loss_summary: Simulation not support list_profit_loss_summary yet
+[pid:20073] 2026-10-22T18:58:17.505235Z  INFO shioaji::api::token_pool: Removed invalid token from slot 1
+[pid:20073] 2026-10-22T18:58:17.505783Z  INFO shioaji::api: msg receiver error: Closed
+[pid:20110] 2026-10-22T18:58:51.321238Z  INFO shioaji::api::api_v1::auth::token_login: No cached token available, performing new login
+[pid:20110] 2026-10-22T18:58:51.621272Z  INFO shioaji::api::api_v1::auth::token_login: Stored new token in slot 1
+[pid:20110] 2026-10-22T18:58:51.736630Z  WARN _core::api::portf::account_balance: account_balance: simulation mode, returning default
+[pid:20110] 2026-10-22T18:58:51.777486Z  INFO shioaji::contracts_v2::traffic: contract backend response endpoint="contracts_version" regions=Some([TW]) security_types=Some([Stock]) bytes=198
+[pid:20110] 2026-10-22T18:58:51.778987Z  INFO shioaji::contracts_v2::traffic: contract disk cache cache="hit" block="base" region=TW security_type=STK bytes=9335
+[pid:20110] 2026-10-22T18:58:51.780586Z  INFO shioaji::contracts_v2::traffic: contract disk cache cache="hit" block="info" region=TW security_type=STK bytes=86733
+[pid:20110] 2026-10-22T18:58:51.913555Z  INFO shioaji::api::token_pool: Removed invalid token from slot 1
+[pid:20110] 2026-10-22T18:58:51.914816Z  INFO shioaji::api: msg receiver error: Closed

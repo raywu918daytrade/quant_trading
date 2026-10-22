@@ -48,6 +48,31 @@ def load_env_file(path):
         if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'": v = v[1:-1]
         os.environ.setdefault(k, v)
 
+SIMULATION = True   # 三道保險之一: 永遠是模擬環境。改成 False 程式會拒絕執行。
+
+def connect_simulation_only(sj):
+    """登入永豐『模擬環境』並做三道查核, 任何一道不過就直接退出, 絕不碰正式帳號:
+    1. 程式常數 SIMULATION 必須為 True, 且 Shioaji(simulation=True) 寫死。
+    2. 本程式從不呼叫 activate_ca(): 正式環境的股票委託必須憑證簽章, 沒簽章連送都送不出去。
+    3. 登入後查 account_balance(): 模擬環境回傳 date='' 與餘額 0 (永豐的 simulation default);
+       正式帳號一定帶日期與真實餘額 → 一旦看到就視為「不是模擬環境」立即停止。"""
+    if SIMULATION is not True: sys.exit("安全停止: SIMULATION 不是 True")
+    api = sj.Shioaji(simulation=True)
+    api.login(api_key=os.environ["SINOPAC_API_KEY"], secret_key=os.environ["SINOPAC_SECRET_KEY"])
+    try:
+        bal = api.account_balance()
+        date_ = str(getattr(bal, "date", "") or ""); amt = float(getattr(bal, "acc_balance", 0) or 0)
+    except Exception as e:
+        try: api.logout()
+        except Exception: pass
+        sys.exit(f"安全停止: 無法查核 account_balance ({e})")
+    if date_ != "" or amt != 0:
+        try: api.logout()
+        except Exception: pass
+        sys.exit(f"安全停止: account_balance 回傳真實資料 (date={date_!r}, 餘額非 0)，看起來不是模擬環境，拒絕執行")
+    log(f"✓ 模擬環境確認: Shioaji(simulation=True)、未啟用 CA、account_balance 為模擬預設值 (date='', 餘額 0)。帳號 signed={getattr(api.stock_account, 'signed', None)}")
+    return api
+
 def fetch_signals(date_str, wait_until=None, local_csv=None):
     """回傳 (date, no_trade, picks[list of dict])。picks 鍵: stock_id,name,prev_close,open,lots,amount,force_cover,limit_up"""
     if local_csv:
@@ -256,9 +281,7 @@ def main():
         return
 
     import shioaji as sj
-    api = sj.Shioaji(simulation=True)     # 硬寫死: 永遠是模擬環境
-    api.login(api_key=os.environ["SINOPAC_API_KEY"], secret_key=os.environ["SINOPAC_SECRET_KEY"])
-    log("模擬環境登入成功, 帳號 signed =", getattr(api.stock_account, "signed", None))
+    api = connect_simulation_only(sj)
     pt = Paper(api, picks, d)
     api.set_order_callback(pt.on_order); api.set_on_tick_stk_v1_callback(pt.on_tick)
     for p in picks:
