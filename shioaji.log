@@ -82,3 +82,17 @@
 [pid:28590] 2026-10-22T21:09:40.588413Z  INFO shioaji::contracts_v2::traffic: contract disk cache cache="hit" block="info" region=TW security_type=STK bytes=86733
 [pid:28590] 2026-10-22T21:09:40.718709Z  INFO shioaji::api::token_pool: Removed invalid token from slot 1
 [pid:28590] 2026-10-22T21:09:40.719545Z  INFO shioaji::api: msg receiver error: Closed
+[pid:29275] 2026-10-22T21:21:29.839915Z  INFO shioaji::api::api_v1::auth::token_login: No cached token available, performing new login
+[pid:29275] 2026-10-22T21:21:30.140785Z  INFO shioaji::api::api_v1::auth::token_login: Stored new token in slot 1
+[pid:29275] 2026-10-22T21:21:30.484845Z  INFO shioaji::api::api_v1::auth::token_login: No cached token available, performing new login
+[pid:29275] 2026-10-22T21:21:30.763038Z  INFO shioaji::api::api_v1::auth::token_login: Stored new token in slot 2
+[pid:29275] 2026-10-22T21:21:32.862277Z  INFO shioaji::contracts_v2::traffic: contract backend response endpoint="contracts_version" regions=Some([TW]) security_types=Some([Stock]) bytes=198
+[pid:29275] 2026-10-22T21:21:32.863541Z  INFO shioaji::contracts_v2::traffic: contract disk cache cache="hit" block="base" region=TW security_type=STK bytes=9335
+[pid:29275] 2026-10-22T21:21:32.864854Z  INFO shioaji::contracts_v2::traffic: contract disk cache cache="hit" block="info" region=TW security_type=STK bytes=86733
+[pid:29275] 2026-10-22T21:21:32.894140Z  INFO shioaji::contracts_v2::traffic: contract backend response endpoint="contracts_version" regions=Some([TW]) security_types=Some([Stock]) bytes=198
+[pid:29275] 2026-10-22T21:21:32.894857Z  INFO shioaji::contracts_v2::traffic: contract disk cache cache="hit" block="base" region=TW security_type=STK bytes=9335
+[pid:29275] 2026-10-22T21:21:32.895946Z  INFO shioaji::contracts_v2::traffic: contract disk cache cache="hit" block="info" region=TW security_type=STK bytes=86733
+[pid:29275] 2026-10-22T21:21:36.219628Z  INFO shioaji::api::token_pool: Removed invalid token from slot 1
+[pid:29275] 2026-10-22T21:21:36.220335Z  INFO shioaji::api: msg receiver error: Closed
+[pid:29275] 2026-10-22T21:21:36.372596Z  INFO shioaji::api::token_pool: Removed invalid token from slot 2
+[pid:29275] 2026-10-22T21:21:36.373605Z  INFO shioaji::api: msg receiver error: Closed
