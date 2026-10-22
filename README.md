@@ -222,6 +222,6 @@ GitHub Actions (平日 UTC 01:01 = 台灣 09:01, .github/workflows/daily_signals
 - 假日/非盤中: MIS 回前一交易日的日期，`daily_candidates.py` 會拒絕產生名單 (exit 非 0)，workflow 顯示失敗、`latest.json` 維持上一次名單，屬預期行為。
 - 手動補跑: GitHub → Actions → Daily signals → Run workflow (可填 `date` 回放歷史日)。
 
-**Mac 備援**: 本機 launchd 排程 (`scripts/install_schedule.sh`) 與 `scripts/webapp.py` 照舊可用。若 GitHub Actions 失敗 (例如 MIS 擋海外 IP)，在 Mac 09:01 跑 `python3 scripts/daily_candidates.py` 後執行
+**Mac 備援**: 2026-10-23 起以雲端為主，本機 launchd 排程已移除 (`zsh scripts/install_schedule.sh install` 可裝回)；`scripts/webapp.py` 仍可手動用。若 GitHub Actions 失敗 (例如 MIS 擋海外 IP)，在 Mac 09:01 跑 `python3 scripts/daily_candidates.py` 後執行
 `HF_TOKEN=... python3 scripts/publish_signals.py` 即可把名單推到 HF，手機頁照樣看得到。
 若 MIS 完全擋 GitHub IP 的替代方案: Mac 於 09:01 只抓開盤價上傳 HF `db/opens/<date>.csv` (stock_id,open)，雲端 workflow 改用 `--open-csv` 讀它。
