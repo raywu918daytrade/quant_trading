@@ -11,9 +11,13 @@
 """
 import os, sys, json, requests
 
-OWNER, REPO, WF = "raywu918daytrade", "quant_trading", "daily_signals.yml"
-TITLE = "quant_trading daily signals 09:01"
-DISPATCH_URL = f"https://api.github.com/repos/{OWNER}/{REPO}/actions/workflows/{WF}/dispatches"
+OWNER, REPO = "raywu918daytrade", "quant_trading"
+JOBS = [  # (title, workflow file, 時, 分) 台灣時間, 平日
+    ("quant_trading daily signals 09:01", "daily_signals.yml", 9, 1),
+    ("quant_trading paper trade 08:50", "paper_trade.yml", 8, 50),
+]
+def dispatch_url(wf): return f"https://api.github.com/repos/{OWNER}/{REPO}/actions/workflows/{wf}/dispatches"
+DISPATCH_URL = dispatch_url(JOBS[0][1])
 API = "https://api.cron-job.org"
 
 def read_env_file(path):
@@ -58,25 +62,24 @@ def main():
                      "請用 raywu918daytrade 帳號到 https://github.com/settings/personal-access-tokens/new 建 fine-grained token"
                      " (只選 quant_trading repo, Actions: Read and write)，加進 .env 叫 GITHUB_DISPATCH_TOKEN_DAY_TRADE 再跑。")
 
-    job = {"title": TITLE, "url": DISPATCH_URL, "enabled": True, "saveResponses": True,
-           "requestMethod": 1,  # POST
-           "extendedData": {"headers": {"Authorization": f"Bearer {gh}", "Accept": "application/vnd.github+json",
-                                        "Content-Type": "application/json"}, "body": '{"ref":"main"}'},
-           "schedule": {"timezone": "Asia/Taipei", "expiresAt": 0, "hours": [9], "minutes": [1], "mdays": [-1], "months": [-1], "wdays": [1, 2, 3, 4, 5]}}
-
     r = requests.get(f"{API}/jobs", headers=h, timeout=20); r.raise_for_status()
-    existing = [j for j in r.json().get("jobs", []) if j.get("title") == TITLE]
-    if existing:
-        jid = existing[0]["jobId"]
-        r = requests.patch(f"{API}/jobs/{jid}", headers=h, json={"job": job}, timeout=20); r.raise_for_status()
-        print(f"已更新 cron-job.org job {jid}: {TITLE}")
-    else:
-        r = requests.put(f"{API}/jobs", headers=h, json={"job": job}, timeout=20); r.raise_for_status()
-        jid = r.json().get("jobId"); print(f"已建立 cron-job.org job {jid}: {TITLE}")
-    r = requests.get(f"{API}/jobs/{jid}", headers=h, timeout=20); r.raise_for_status()
-    jd = r.json().get("jobDetails", {})
-    print("schedule:", json.dumps(jd.get("schedule"), ensure_ascii=False), "| method:", jd.get("requestMethod"), "| enabled:", jd.get("enabled"))
-    print("url:", jd.get("url"))
+    existing = {j.get("title"): j["jobId"] for j in r.json().get("jobs", [])}
+    for title, wf, hh, mm in JOBS:
+        job = {"title": title, "url": dispatch_url(wf), "enabled": True, "saveResponses": True,
+               "requestMethod": 1,  # POST
+               "extendedData": {"headers": {"Authorization": f"Bearer {gh}", "Accept": "application/vnd.github+json",
+                                            "Content-Type": "application/json"}, "body": '{"ref":"main"}'},
+               "schedule": {"timezone": "Asia/Taipei", "expiresAt": 0, "hours": [hh], "minutes": [mm], "mdays": [-1], "months": [-1], "wdays": [1, 2, 3, 4, 5]}}
+        if title in existing:
+            jid = existing[title]
+            r = requests.patch(f"{API}/jobs/{jid}", headers=h, json={"job": job}, timeout=20); r.raise_for_status()
+            print(f"已更新 cron-job.org job {jid}: {title}")
+        else:
+            r = requests.put(f"{API}/jobs", headers=h, json={"job": job}, timeout=20); r.raise_for_status()
+            jid = r.json().get("jobId"); print(f"已建立 cron-job.org job {jid}: {title}")
+        r = requests.get(f"{API}/jobs/{jid}", headers=h, timeout=20); r.raise_for_status()
+        jd = r.json().get("jobDetails", {})
+        print("  schedule:", json.dumps(jd.get("schedule"), ensure_ascii=False), "| enabled:", jd.get("enabled"), "| url:", jd.get("url"))
 
 if __name__ == "__main__":
     main()

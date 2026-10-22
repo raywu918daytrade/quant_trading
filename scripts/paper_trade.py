@@ -33,6 +33,7 @@ ENTRY_T = (9, 1, 0)       # 進場時間
 VWAP_WIN = ((9, 1, 0), (9, 3, 0))   # 真實 tick 基準: 09:01~09:03 VWAP
 EXIT_T = (13, 26, 0)      # 收盤前市價回補 (參與 13:30 收盤競價)
 END_T = (13, 35, 0)
+LATE_ABORT_T = (9, 4, 0)  # 超過這時間還沒進場 (例如備援排程太晚啟動) 就放棄, 不在盤中亂下單
 
 def now(): return datetime.now(TZ)
 def at(h, m, s=0): return now().replace(hour=h, minute=m, second=s, microsecond=0)
@@ -306,6 +307,8 @@ def main():
         if p["stock_id"] in pt.contracts: api.subscribe(pt.contracts[p["stock_id"]], quote_type=sj.QuoteType.Tick)
     log(f"已訂閱 {len(pt.contracts)} 檔 tick, 等到 {ENTRY_T[0]:02d}:{ENTRY_T[1]:02d}:{ENTRY_T[2]:02d} 進場 ...")
     sleep_until(at(*ENTRY_T))
+    if now() > at(*LATE_ABORT_T):
+        log(f"現在 {now().strftime('%H:%M:%S')} 已超過 {LATE_ABORT_T[0]:02d}:{LATE_ABORT_T[1]:02d}，太晚進場，放棄 (今天不做模擬)"); api.logout(); sys.exit(2)
     pt.enter()
     log("進場完成, 盯盤到 13:26 ...")
     t_exit = at(*EXIT_T); last_hb = now()
