@@ -277,3 +277,4 @@ D1 抓到 2018 (2018~2019 只當訓練)、M1 抓到 2020，池版模型 B 按季
 - 模擬: `paper_trade.yml` 矩陣 `[base, seq]` 兩台 runner 各跑一個變體；`paper_trade.py --variant seq` 帳本在 `paper_seq/` → HF `db/paper_seq/`。兩者共用同一個永豐模擬帳戶，委託帶 `custom_field` 標記，回報只認自己變體的。
 - 手機頁頂部三段切換: 正式模型 / 影子 / 對照 (兩邊名單並排、兩邊都選到加粗、各自模擬累積報酬與日勝率)。正式那條完全不受影響。
 - 決策: 跑一個月後看對照頁的累積與勝率，影子持續領先才升為正式 (把 `latest_model` 的預設改成 Bseq 並更新 README 規格)。
+- D1 支撐壓力特徵對照 (`scripts/23_sr_feature_test.py` → `stats/sr_feature_test.md`): 回看 60 天轉折高/低點 (前後 3 天極值)、±1% 帶觸碰次數，13 個特徵 (開盤離最近壓力/支撐距離與強度、60 日高低距離等)。基準+SR: 每筆 0.52→0.57% (七年每年都升)、Sharpe 3.44→3.84、**MDD 不變 (−14.0%)、每日 IC 差 t=3.07 顯著**。基準+seq+SR 每筆最高 0.62% 但 MDD −22%。「觸碰次數」本身重要度低，有用的是距離 (sr_lo60_dist / sr_hi60_dist / sr_sup_dist / sr_res_dist)。
