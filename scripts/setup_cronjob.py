@@ -54,7 +54,7 @@ def main():
                           json={"ref": "main"}, timeout=20)
         print("GitHub dispatch 測試:", r.status_code, "(204 = 成功觸發)" if r.status_code == 204 else r.text[:200])
         if r.status_code != 204:
-            sys.exit("這把 GitHub token 無法觸發 raywu918python/quant_trading 的 workflow (404/403 = 沒權限)。"
+            sys.exit("這把 GitHub token 無法觸發 raywu918daytrade/quant_trading 的 workflow (404/403 = 沒權限)。"
                      "請用 raywu918daytrade 帳號到 https://github.com/settings/personal-access-tokens/new 建 fine-grained token"
                      " (只選 quant_trading repo, Actions: Read and write)，加進 .env 叫 GITHUB_DISPATCH_TOKEN_DAY_TRADE 再跑。")
 
