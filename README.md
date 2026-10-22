@@ -271,10 +271,10 @@ D1 抓到 2018 (2018~2019 只當訓練)、M1 抓到 2020，池版模型 B 按季
 - 模型 × ATR 交集 (`stats/selection_overlap.md`): 每天模型前 10 與 ATR 前 10 只重疊 3.1 檔 (31%)；交集每筆淨 0.67%、只有模型 0.46%、只有 ATR 0.41%，七年中六年交集最好。但交集每天只有 3 檔填不滿 300 萬 (使用率 59%, 日淨反而低)；把交集股加碼 (90~150 萬/檔) 年化多 5~14%，代價是 MDD 從 −15.6% 惡化到 −20~−26%、Sharpe 由 4.2 降到 3.7。**結論: 維持純模型等權 (每檔 60 萬)，不加碼交集。**
 - K 線序列特徵對照 (`scripts/21_kline_seq_test.py` → `stats/kline_seq_test.md`): 基準 33 特徵 vs 加 45 個最近 10 天 K 棒序列特徵，2020Q1~2026Q4 同 pipeline 各訓 28 季。序列版每筆淨 0.52→0.59%，七年每一年每筆都較高；日淨 0.47→0.52%，Sharpe 3.44→4.00；但 MDD −13.9%→−18.1%，每日 IC 差 t-stat 僅 1.54。序列特徵 gain 占 46% (上下影線、各日跳空最重要)。尚未採用，待決定。
 
-## 影子模型 (2026-10-23) — K 線序列模型與正式模型並行比較
-- 模型: `scripts/22_train_seq_model.py [季]` 訓練 `models/lgbm_Bseq_pool_<季>.txt` (基準 33 + `features.SEQ_FEATS` 45 個, D1 從 2018 起)。每季初與正式模型一起重訓。
-- 名單: `daily_candidates.py --variant seq` 用同一份開盤價 (`signals/<date>_opens.csv`) 產生 `signals/<date>_seq.*`；`publish_signals.py` 一併上傳成 `db/signals/<date>_seq.json` 與 `latest_seq.json`。workflow `daily_signals.yml` 已加這一步。
-- 模擬: `paper_trade.yml` 矩陣 `[base, seq]` 兩台 runner 各跑一個變體；`paper_trade.py --variant seq` 帳本在 `paper_seq/` → HF `db/paper_seq/`。兩者共用同一個永豐模擬帳戶，委託帶 `custom_field` 標記，回報只認自己變體的。
-- 手機頁頂部三段切換: 正式模型 / 影子 / 對照 (兩邊名單並排、兩邊都選到加粗、各自模擬累積報酬與日勝率)。正式那條完全不受影響。
-- 決策: 跑一個月後看對照頁的累積與勝率，影子持續領先才升為正式 (把 `latest_model` 的預設改成 Bseq 並更新 README 規格)。
+## 影子模型 (2026-10-23) — 「基準 + 支撐壓力」與正式模型並行比較
+- 影子變體 `sr` = 基準 33 + `features.SR_FEATS` 13 個支撐壓力特徵 (`features.build_sr`, 回看 60 天轉折點)。`scripts/22_train_seq_model.py sr [季]` 訓練 `models/lgbm_Bsr_pool_<季>.txt` (D1 從 2018 起)，每季初與正式模型一起重訓。另一個變體 `seq` (K 線序列) 程式保留但不排程。
+- 名單: `daily_candidates.py --variant sr` 用同一份開盤價 (`signals/<date>_opens.csv`) 產生 `signals/<date>_sr.*` (支撐壓力只對池內股票算, 約 10 秒)；`publish_signals.py` 一併上傳成 `db/signals/<date>_sr.json` 與 `latest_sr.json`。workflow `daily_signals.yml` 已加這一步。
+- 模擬: `paper_trade.yml` 矩陣 `[base, sr]` 兩台 runner 各跑一個變體；`paper_trade.py --variant sr` 帳本在 `paper_sr/` → HF `db/paper_sr/`。兩者共用同一個永豐模擬帳戶，委託帶 `custom_field` 標記，回報只認自己變體的。
+- 手機頁頂部三段切換: 正式模型 / 影子：支撐壓力 / 對照 (兩邊名單並排、兩邊都選到加粗、各自模擬累積報酬與日勝率)。正式那條完全不受影響。
+- 決策: 跑兩到四週看對照頁，影子持續領先才升為正式 (把 `latest_model` 預設改成 Bsr、`FEATS` 加 SR，並更新規格)。回測依據: `stats/sr_feature_test.md` (每筆 0.52→0.57%、Sharpe 3.44→3.84、MDD 不變、IC 差 t=3.07)。
 - D1 支撐壓力特徵對照 (`scripts/23_sr_feature_test.py` → `stats/sr_feature_test.md`): 回看 60 天轉折高/低點 (前後 3 天極值)、±1% 帶觸碰次數，13 個特徵 (開盤離最近壓力/支撐距離與強度、60 日高低距離等)。基準+SR: 每筆 0.52→0.57% (七年每年都升)、Sharpe 3.44→3.84、**MDD 不變 (−14.0%)、每日 IC 差 t=3.07 顯著**。基準+seq+SR 每筆最高 0.62% 但 MDD −22%。「觸碰次數」本身重要度低，有用的是距離 (sr_lo60_dist / sr_hi60_dist / sr_sup_dist / sr_res_dist)。

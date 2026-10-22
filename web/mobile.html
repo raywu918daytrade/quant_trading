@@ -34,7 +34,7 @@ details summary{cursor:pointer;color:var(--accent);font-size:14px}
 <header><h1>當沖做空名單</h1><button id="btnReload">重新整理</button></header>
 <main>
   <div class="datebar"><input type="date" id="dateIn"><button id="btnDate">載入</button><button id="btnLatest" class="sec">回最新</button><span id="status" class="muted"></span></div>
-  <div class="seg" id="seg"><button data-v="base" class="on">正式模型</button><button data-v="seq">影子：K 線序列</button><button data-v="cmp">對照</button></div>
+  <div class="seg" id="seg"><button data-v="base" class="on">正式模型</button><button data-v="sr">影子：支撐壓力</button><button data-v="cmp">對照</button></div>
   <div id="cmpBox" style="display:none">
     <div class="cards" id="cmpCards"></div>
     <div class="wrap"><table><thead><tr><th>正式</th><th>影子</th></tr></thead><tbody id="cmpBody"></tbody></table></div>
@@ -69,8 +69,9 @@ details summary{cursor:pointer;color:var(--accent);font-size:14px}
 <script>
 const BASE = "https://huggingface.co/datasets/raywu918daytrade/daytrade/resolve/main/db/signals/";
 let VARIANT = "base";   // base | seq | cmp
-const sigName = (date, v) => (date ? `${date}${v==="seq"?"_seq":""}.json` : (v==="seq" ? "latest_seq.json" : "latest.json"));
-const paperBase = v => "https://huggingface.co/datasets/raywu918daytrade/daytrade/resolve/main/db/" + (v==="seq" ? "paper_seq" : "paper") + "/";
+const SHADOW = "sr";
+const sigName = (date, v) => (date ? `${date}${v===SHADOW?"_"+SHADOW:""}.json` : (v===SHADOW ? `latest_${SHADOW}.json` : "latest.json"));
+const paperBase = v => "https://huggingface.co/datasets/raywu918daytrade/daytrade/resolve/main/db/" + (v===SHADOW ? "paper_"+SHADOW : "paper") + "/";
 const qs = new URLSearchParams(location.search);
 const SRC = qs.get("src");               // 測試用: ?src=本機 json 網址
 const fmt = (x, d=2) => (x==null||isNaN(x)) ? "–" : Number(x).toLocaleString("zh-TW",{minimumFractionDigits:d,maximumFractionDigits:d});
@@ -97,7 +98,7 @@ async function load(date){
 function render(j){
   const noTrade = (j.no_trade||[]).length>0;
   $("banner").className = "banner " + (noTrade ? "stop" : "go");
-  $("banner").textContent = (VARIANT==="seq" ? "[影子] " : "") + (noTrade ? ("今日不交易: " + j.no_trade.join("；") + " (名單僅供參考)") : `可交易 · ${j.date} (週${dowName(j.date)})`);
+  $("banner").textContent = (VARIANT===SHADOW ? "[影子] " : "") + (noTrade ? ("今日不交易: " + j.no_trade.join("；") + " (名單僅供參考)") : `可交易 · ${j.date} (週${dowName(j.date)})`);
   $("cDate").textContent = j.date + " 週" + dowName(j.date);
   const mg = j.mkt_gap==null ? null : j.mkt_gap*100;
   $("cMkt").textContent = mg==null ? "–" : (mg>0?"+":"") + fmt(mg) + "%"; $("cMkt").className = "v " + pctCls(mg);
@@ -166,8 +167,8 @@ async function fetchJ(u){ const r = await fetch(u + "?t=" + Date.now(), {cache:"
 async function fetchCsv(u){ const r = await fetch(u + "?t=" + Date.now(), {cache:"no-store"}); if(!r.ok) return []; const [h, ...ls] = (await r.text()).trim().split(/\r?\n/); const H = h.split(","); return ls.filter(Boolean).map(l => { const c = l.split(","); const o = {}; H.forEach((k,i)=>o[k]=c[i]); return o; }); }
 async function loadCompare(date){
   try{
-    const [a, b] = await Promise.all([fetchJ(BASE + sigName(date, "base")).catch(()=>null), fetchJ(BASE + sigName(date, "seq")).catch(()=>null)]);
-    const [sa, sb] = await Promise.all([fetchCsv(paperBase("base") + "summary.csv"), fetchCsv(paperBase("seq") + "summary.csv")]);
+    const [a, b] = await Promise.all([fetchJ(BASE + sigName(date, "base")).catch(()=>null), fetchJ(BASE + sigName(date, SHADOW)).catch(()=>null)]);
+    const [sa, sb] = await Promise.all([fetchCsv(paperBase("base") + "summary.csv"), fetchCsv(paperBase(SHADOW) + "summary.csv")]);
     const cum = rows => { const r = rows.filter(x => x.sim_pnl_net !== "" && x.sim_pnl_net != null); const pct = r.reduce((t,x) => t + (+x.sim_pnl_net || 0), 0) / 3000000 * 100; const wins = r.filter(x => +x.sim_pnl_net > 0).length; return {n: r.length, pct, win: r.length ? wins/r.length : null}; };
     const ca = cum(sa), cb = cum(sb); const pct = v => (v>0?"+":"") + fmt(v) + "%";
     $("cmpCards").innerHTML = [["正式 · 模擬累積", ca, "base"], ["影子 · 模擬累積", cb, "seq"]].map(([k, c]) => `<div class="card"><div class="k">${k}</div><div class="v ${c.n ? pctCls(c.pct) : ""}" style="font-size:19px">${c.n ? pct(c.pct) : "尚無"}</div><div class="k">${c.n ? c.n + " 天 · 日勝率 " + Math.round(c.win*100) + "%" : "等結算後出現"}</div></div>`).join("");
@@ -179,7 +180,7 @@ async function loadCompare(date){
   }catch(e){ $("cmpBox").style.display = "none"; }
 }
 document.querySelectorAll("#seg button").forEach(b => b.onclick = () => { VARIANT = b.dataset.v; document.querySelectorAll("#seg button").forEach(x => x.classList.toggle("on", x === b)); $("cmpBox").style.display = "none"; try{ localStorage.setItem("variant", VARIANT); }catch(e){} load($("dateIn").value && $("dateIn").value !== lastLatest ? $("dateIn").value : null); });
-try{ const v = localStorage.getItem("variant"); if(v && ["base","seq","cmp"].includes(v)){ VARIANT = v; document.querySelectorAll("#seg button").forEach(x => x.classList.toggle("on", x.dataset.v === v)); } }catch(e){}
+try{ const v = localStorage.getItem("variant"); if(v && ["base",SHADOW,"cmp"].includes(v)){ VARIANT = v; document.querySelectorAll("#seg button").forEach(x => x.classList.toggle("on", x.dataset.v === v)); } }catch(e){}
 $("btnReload").onclick = () => load($("dateIn").value && $("dateIn").value !== lastLatest ? $("dateIn").value : null);
 $("btnDate").onclick = () => load($("dateIn").value || null);
 $("btnLatest").onclick = () => load(null);

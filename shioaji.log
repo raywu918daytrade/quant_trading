@@ -58,3 +58,11 @@
 [pid:26833] 2026-10-22T20:51:09.197004Z  INFO shioaji::contracts_v2::traffic: contract disk cache cache="hit" block="info" region=TW security_type=STK bytes=86733
 [pid:26833] 2026-10-22T20:51:09.324107Z  INFO shioaji::api::token_pool: Removed invalid token from slot 1
 [pid:26833] 2026-10-22T20:51:09.325022Z  INFO shioaji::api: msg receiver error: Closed
+[pid:28061] 2026-10-22T21:03:20.653603Z  INFO shioaji::api::api_v1::auth::token_login: No cached token available, performing new login
+[pid:28061] 2026-10-22T21:03:21.084069Z  INFO shioaji::api::api_v1::auth::token_login: Stored new token in slot 1
+[pid:28061] 2026-10-22T21:03:21.138567Z  WARN _core::api::portf::account_balance: account_balance: simulation mode, returning default
+[pid:28061] 2026-10-22T21:03:21.186531Z  INFO shioaji::contracts_v2::traffic: contract backend response endpoint="contracts_version" regions=Some([TW]) security_types=Some([Stock]) bytes=198
+[pid:28061] 2026-10-22T21:03:21.194162Z  INFO shioaji::contracts_v2::traffic: contract disk cache cache="hit" block="base" region=TW security_type=STK bytes=9335
+[pid:28061] 2026-10-22T21:03:21.197029Z  INFO shioaji::contracts_v2::traffic: contract disk cache cache="hit" block="info" region=TW security_type=STK bytes=86733
+[pid:28061] 2026-10-22T21:03:21.401229Z  INFO shioaji::api::token_pool: Removed invalid token from slot 1
+[pid:28061] 2026-10-22T21:03:21.402043Z  INFO shioaji::api: msg receiver error: Closed

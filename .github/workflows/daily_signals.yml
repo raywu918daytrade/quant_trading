@@ -39,11 +39,11 @@ jobs:
         run: |
           D="${{ github.event.inputs.date }}"
           if [ -n "$D" ]; then python3 scripts/daily_candidates.py --date "$D"; else python3 scripts/daily_candidates.py; fi
-      - name: Shadow model (seq) candidates, same opens
+      - name: Shadow model (sr) candidates, same opens
         run: |
           D="${{ github.event.inputs.date }}"
-          if [ -n "$D" ]; then python3 scripts/daily_candidates.py --date "$D" --variant seq
-          else T=$(TZ=Asia/Taipei date +%F); python3 scripts/daily_candidates.py --variant seq --open-csv "signals/${T}_opens.csv"; fi
+          if [ -n "$D" ]; then python3 scripts/daily_candidates.py --date "$D" --variant sr
+          else T=$(TZ=Asia/Taipei date +%F); python3 scripts/daily_candidates.py --variant sr --open-csv "signals/${T}_opens.csv"; fi
       - name: Publish to HF db/signals
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}

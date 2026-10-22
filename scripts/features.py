@@ -89,3 +89,54 @@ def build_seq(d1f: pd.DataFrame) -> pd.DataFrame:
     for col in SEQ_FEATS:
         k, n = col[1:].split("_", 1); out[col] = src[n].groupby(b.stock_id, sort=False).shift(int(k)).values
     return out
+
+# ---- D1 支撐壓力特徵 (影子模型 Bsr 用; 2026-10-23 實驗 stats/sr_feature_test.md) ----
+SR_LOOK, SR_W, SR_TOL = 60, 3, 0.01
+SR_FEATS = ["sr_res_dist","sr_res_touch","sr_res_age","sr_sup_dist","sr_sup_touch","sr_sup_age","sr_near_res","sr_near_sup","sr_above_res","sr_n_res","sr_n_sup","sr_hi60_dist","sr_lo60_dist"]
+
+def _sr_one(stock: pd.DataFrame) -> pd.DataFrame:
+    """單檔 (已按日期排序, 需 open/high/low). 回看 SR_LOOK 天: 轉折高/低點 = 前後 SR_W 天極值 (需 SR_W 天後才確認);
+    特徵相對今天開盤價, 只用前一日以前的資料."""
+    LOOK, W, TOL = SR_LOOK, SR_W, SR_TOL
+    hi = stock.high.values.astype(float); lo = stock.low.values.astype(float); op = stock.open.values.astype(float); n = len(stock)
+    is_sh = np.zeros(n, bool); is_sl = np.zeros(n, bool)
+    for i in range(W, n-W):
+        if np.isfinite(hi[i]) and hi[i] == np.nanmax(hi[i-W:i+W+1]): is_sh[i] = True
+        if np.isfinite(lo[i]) and lo[i] == np.nanmin(lo[i-W:i+W+1]): is_sl[i] = True
+    cols = {k: np.full(n, np.nan) for k in SR_FEATS}
+    for t in range(LOOK+W, n):
+        o = op[t]
+        if not np.isfinite(o): continue
+        a, b = t-LOOK, t-W; wh = hi[a:t]; wl = lo[a:t]
+        shs = np.where(is_sh[a:b])[0] + a; sls = np.where(is_sl[a:b])[0] + a
+        res = [(hi[i], i) for i in shs if hi[i] > o]; sup = [(lo[i], i) for i in sls if lo[i] < o]
+        cols["sr_n_res"][t] = len(shs); cols["sr_n_sup"][t] = len(sls)
+        if res:
+            p, i = min(res); cols["sr_res_dist"][t] = p/o-1; cols["sr_res_touch"][t] = int(np.sum(np.abs(wh/p-1) <= TOL)); cols["sr_res_age"][t] = t-i; cols["sr_near_res"][t] = float(p/o-1 <= TOL)
+        else:
+            cols["sr_res_dist"][t] = np.nanmax(wh)/o-1; cols["sr_res_touch"][t] = 0; cols["sr_res_age"][t] = LOOK; cols["sr_near_res"][t] = 0.0
+        if sup:
+            p, i = max(sup); cols["sr_sup_dist"][t] = o/p-1; cols["sr_sup_touch"][t] = int(np.sum(np.abs(wl/p-1) <= TOL)); cols["sr_sup_age"][t] = t-i; cols["sr_near_sup"][t] = float(o/p-1 <= TOL)
+        else:
+            cols["sr_sup_dist"][t] = o/np.nanmin(wl)-1; cols["sr_sup_touch"][t] = 0; cols["sr_sup_age"][t] = LOOK; cols["sr_near_sup"][t] = 0.0
+        if len(shs):
+            strongest = max(shs, key=lambda i: int(np.sum(np.abs(wh/hi[i]-1) <= TOL))); cols["sr_above_res"][t] = float(o > hi[strongest])
+        else: cols["sr_above_res"][t] = 0.0
+        cols["sr_hi60_dist"][t] = np.nanmax(wh)/o-1; cols["sr_lo60_dist"][t] = o/np.nanmin(wl)-1
+    out = pd.DataFrame(cols, index=stock.index); out["stock_id"] = stock.stock_id.values; out["date"] = stock.date.values
+    return out
+
+def build_sr(d1f: pd.DataFrame, stock_ids=None, workers: int = 1) -> pd.DataFrame:
+    """輸入含 stock_id,date,open,high,low 的 D1 (d1_base 輸出亦可). 回傳 stock_id,date + SR_FEATS. stock_ids 可限制只算部分股票."""
+    b = d1f if stock_ids is None else d1f[d1f.stock_id.isin(set(stock_ids))]
+    b = b.sort_values(["stock_id","date"]).reset_index(drop=True)
+    parts = [g for _, g in b.groupby("stock_id", sort=False)]
+    if workers > 1:
+        from concurrent.futures import ProcessPoolExecutor
+        with ProcessPoolExecutor(workers) as ex: outs = list(ex.map(_sr_one, parts, chunksize=20))
+    else: outs = [_sr_one(g) for g in parts]
+    return pd.concat(outs, ignore_index=True) if outs else pd.DataFrame(columns=["stock_id","date"] + SR_FEATS)
+
+def shadow_feats(variant: str):
+    """變體 → 額外特徵清單 (base 無)."""
+    return {"seq": SEQ_FEATS, "sr": SR_FEATS}.get(variant, [])

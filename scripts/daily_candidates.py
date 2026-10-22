@@ -64,7 +64,7 @@ def fetch_twse_opens(stock_ids, markets, sleep=0.4):
     return pd.DataFrame(out)
 
 def latest_model(variant="base"):
-    tag = "B" if variant == "base" else "Bseq"
+    tag = "B" if variant == "base" else "B" + variant
     fs = sorted(glob.glob(str(ROOT/f"models/lgbm_{tag}_pool_*.txt")))
     if not fs: sys.exit(f"找不到 models/lgbm_{tag}_pool_*.txt" + ("，先跑 07_train.py B pool" if variant == "base" else "，先跑 22_train_seq_model.py"))
     return fs[-1]
@@ -77,7 +77,7 @@ def main():
     ap.add_argument("--max-per-stock", type=float, default=600_000); ap.add_argument("--max-price", type=float, default=MAX_PRICE)
     ap.add_argument("--max-n", type=int, default=10); ap.add_argument("--min-amount", type=float, default=100_000, help="單檔金額低於此不做 (避免零頭部位)")
     ap.add_argument("--no-daytrade-filter", action="store_true", help="不過濾現股當沖先賣後買資格 (對照用)")
-    ap.add_argument("--variant", default="base", choices=["base","seq"], help="seq = 影子模型 (基準+K線序列特徵, models/lgbm_Bseq_pool_*), 輸出檔名加 _seq")
+    ap.add_argument("--variant", default="base", choices=["base","seq","sr"], help="影子模型: sr = 基準+支撐壓力 (models/lgbm_Bsr_pool_*), seq = 基準+K線序列; 輸出檔名加 _<variant>")
     a = ap.parse_args()
     if a.refresh: refresh_d1(a.months)
 
@@ -123,8 +123,9 @@ def main():
 
     base_df = F.d1_base(d1); f = F.build_B(base_df)
     FEATS = F.D1_FEATS
-    if a.variant == "seq": f = f.merge(F.build_seq(base_df), on=["stock_id","date"], how="left"); FEATS = F.D1_FEATS + F.SEQ_FEATS
-    sfx = "" if a.variant == "base" else "_seq"
+    if a.variant == "seq": f = f.merge(F.build_seq(base_df), on=["stock_id","date"], how="left")
+    FEATS = F.D1_FEATS + F.shadow_feats(a.variant)
+    sfx = "" if a.variant == "base" else "_" + a.variant
     t = f[f.date == tdate].copy()
     if len(t) == 0: sys.exit("目標日沒有任何資料")
     t = t.merge(d1[d1.date == tdate][["stock_id","name"]].drop_duplicates("stock_id"), on="stock_id", how="left")
@@ -133,6 +134,9 @@ def main():
 
     # ---- 池 + 濾網 ----
     pool = t[F.universe_mask(t) & (t.dv20_prev >= POOL_DV) & (t.atr20 >= POOL_ATR) & t.open.notna()].copy()
+    if a.variant == "sr":   # 支撐壓力特徵只對池內股票算 (回看 60 天), 省時間
+        sr = F.build_sr(base_df, pool.stock_id.unique()); sr = sr[sr.date == tdate]
+        pool = pool.merge(sr, on=["stock_id","date"], how="left")
     import lightgbm as lgb
     mpath = latest_model(a.variant); model = lgb.Booster(model_file=mpath)
     pool["pred"] = model.predict(pool[FEATS])
@@ -156,7 +160,7 @@ def main():
     pool.loc[pool.open > a.max_price, "flag"] += f"股價>{a.max_price:.0f} "
     elig = pool[pool.flag == ""].copy()
 
-    header = [f"日期 {tdate.date()}  開盤價來源: {source}  模型: {Path(mpath).name}" + ("  [影子模型 seq]" if a.variant == "seq" else ""),
+    header = [f"日期 {tdate.date()}  開盤價來源: {source}  模型: {Path(mpath).name}" + (f"  [影子模型 {a.variant}]" if a.variant != "base" else ""),
               f"池 {len(pool)} 檔 (dv20≥5億, ATR20≥3%)；大盤平均跳空 {mkt_gap*100:+.2f}%；上漲比例 {t[t.dv20>=1e8].gap.gt(0).mean()*100:.0f}%"]
     if dt_note: header.append(dt_note)
     no_trade = []

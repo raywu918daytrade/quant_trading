@@ -62,12 +62,13 @@ def main():
             CommitOperationAdd(path_in_repo=f"{PREFIX}/latest.json", path_or_fileobj=js)]
     msg = f"signals {date}: {payload['n_picks']} picks" + (" (no trade)" if payload["no_trade"] else "")
     # 影子模型 (seq) 名單: 有就一起上傳, 寫 <date>_seq.json 與 latest_seq.json
-    seq_files = [SIG/f"{date}_seq{s}" for s in (".csv", ".txt", "_pool.csv", "_meta.json")]
-    if all(f.exists() for f in seq_files):
-        pj = build_json(date, "_seq"); sjs = json.dumps(pj, ensure_ascii=False, indent=1).encode("utf-8")
-        ops += [CommitOperationAdd(path_in_repo=f"{PREFIX}/{f.name}", path_or_fileobj=str(f)) for f in seq_files]
-        ops += [CommitOperationAdd(path_in_repo=f"{PREFIX}/{date}_seq.json", path_or_fileobj=sjs), CommitOperationAdd(path_in_repo=f"{PREFIX}/latest_seq.json", path_or_fileobj=sjs)]
-        msg += f"; seq {pj['n_picks']} picks"
+    for v in ("sr", "seq"):
+        vf = [SIG/f"{date}_{v}{s}" for s in (".csv", ".txt", "_pool.csv", "_meta.json")]
+        if all(f.exists() for f in vf):
+            pj = build_json(date, f"_{v}"); sjs = json.dumps(pj, ensure_ascii=False, indent=1).encode("utf-8")
+            ops += [CommitOperationAdd(path_in_repo=f"{PREFIX}/{f.name}", path_or_fileobj=str(f)) for f in vf]
+            ops += [CommitOperationAdd(path_in_repo=f"{PREFIX}/{date}_{v}.json", path_or_fileobj=sjs), CommitOperationAdd(path_in_repo=f"{PREFIX}/latest_{v}.json", path_or_fileobj=sjs)]
+            msg += f"; {v} {pj['n_picks']} picks"
     info = api.create_commit(repo_id=REPO, repo_type="dataset", operations=ops, commit_message=msg)
     print(f"已上傳 {len(ops)} 個檔案到 {REPO}/{PREFIX} ({msg})")
     print("commit:", getattr(info, "oid", "") or getattr(info, "commit_url", ""))

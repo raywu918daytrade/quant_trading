@@ -322,7 +322,7 @@ def main():
     ap.add_argument("--env-file", action="append", default=[]); ap.add_argument("--dry", action="store_true", help="登入+讀名單+查合約, 不下單不等待")
     ap.add_argument("--signals", default=None, help="本機 signals/<date>.csv (預設抓 HF latest.json)"); ap.add_argument("--publish", action="store_true")
     ap.add_argument("--date", default=None, help="覆寫日期 (測試用)"); ap.add_argument("--force-trade", action="store_true", help="忽略 no_trade 仍下單 (測試用)")
-    ap.add_argument("--variant", default="base", choices=["base","seq"], help="seq = 影子模型名單 (latest_seq.json), 帳本 paper_seq/, HF db/paper_seq/")
+    ap.add_argument("--variant", default="base", choices=["base","seq","sr"], help="影子模型名單 (latest_<variant>.json), 帳本 paper_<variant>/, HF db/paper_<variant>/")
     a = ap.parse_args(); set_variant(a.variant)
     for f in a.env_file: load_env_file(f)
     if not os.environ.get("SINOPAC_API_KEY") or not os.environ.get("SINOPAC_SECRET_KEY"): sys.exit("缺少 SINOPAC_API_KEY / SINOPAC_SECRET_KEY")
