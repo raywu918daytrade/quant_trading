@@ -185,6 +185,12 @@ python3 scripts/daily_candidates.py --date 2026-10-22
 - 模型用 `models/` 裡最新一季的 `lgbm_B_pool_*.txt`；每季初重訓: 依序跑 02 → 03 → 06 → 09 → `07_train.py B pool`，並重新確認 15~17 的結論沒變。
 - 興櫃股票不在 MIS 抓取範圍，對大盤平均跳空的影響 <2%，可忽略。
 
+## 現沖券賣資格過濾 (2026-10-23) — `scripts/daytrade_list.py`
+`daily_candidates.py` 選池後先查證交所 (`TWTB4U`) 與櫃買 (`intraday/list`) 每日公布的「當日可現股當沖」名單 (公開 API, 不需登入, 盤前就有, 支援歷史日期供回放; 快取 `data/raw/meta/daytrade_<日期>.json`)。
+池內「不在名單」(不可當沖) 或「註記暫停現股賣出後現款買進」(只能先買後賣) 的股票標記為不合格，排名往下補。`--no-daytrade-filter` 可關閉 (對照用)。取得失敗時不過濾、在 txt 與 meta 標註警告。
+10/22 回放對照: 池 221 檔中 6 檔被標 (5 不可當沖、1 暫停先賣)，原本合格 120 → 117，被剔除的排名最高是第 26 名，前 10 名單與投入金額完全不變。
+另外 `paper_trade.py` 下單前再用永豐合約的 `day_trade` 欄位 (Yes / OnlyBuy / No) 查核一次，不是 Yes 的略過並記錄，兩層保險。
+
 ## 網頁操作台 (2026-10-23) — `scripts/webapp.py` + `web/index.html`
 ```bash
 python3 scripts/webapp.py        # 開 http://127.0.0.1:8787

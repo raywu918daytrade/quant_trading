@@ -75,6 +75,7 @@ def main():
     ap.add_argument("--open-csv", default=None); ap.add_argument("--capital", type=float, default=3_000_000)
     ap.add_argument("--max-per-stock", type=float, default=600_000); ap.add_argument("--max-price", type=float, default=MAX_PRICE)
     ap.add_argument("--max-n", type=int, default=10); ap.add_argument("--min-amount", type=float, default=100_000, help="單檔金額低於此不做 (避免零頭部位)")
+    ap.add_argument("--no-daytrade-filter", action="store_true", help="不過濾現股當沖先賣後買資格 (對照用)")
     a = ap.parse_args()
     if a.refresh: refresh_d1(a.months)
 
@@ -132,6 +133,18 @@ def main():
     pool = pool.sort_values("pred")
     pool["rank_all"] = np.arange(1, len(pool)+1)
     pool["flag"] = ""
+    # 現股當沖先賣後買資格 (證交所/櫃買每日公布; 不在名單 = 不可當沖, 註記 = 暫停先賣後買)
+    dt_note = ""
+    if not a.no_daytrade_filter:
+        try:
+            import daytrade_list as DL
+            elig = DL.fetch_daytrade_eligible(tdate)
+            can_short = pool.stock_id.map(lambda s: elig.get(s))
+            pool.loc[can_short.isna(), "flag"] += "不可當沖 "
+            pool.loc[can_short == False, "flag"] += "暫停先賣 "
+            dt_note = f"現沖券賣資格: 已過濾 (池內不可當沖 {int(can_short.isna().sum())} 檔, 暫停先賣 {int((can_short == False).sum())} 檔)"
+        except Exception as ex:
+            dt_note = f"現沖券賣資格: 取得失敗, 未過濾 ({ex})"; print("警告:", dt_note)
     pool.loc[pool.gap > GAP_MAX, "flag"] += "跳空>4% "
     pool.loc[pool.open <= pool.prev_close*0.905, "flag"] += "跌停附近 "
     pool.loc[pool.open > a.max_price, "flag"] += f"股價>{a.max_price:.0f} "
@@ -139,6 +152,7 @@ def main():
 
     header = [f"日期 {tdate.date()}  開盤價來源: {source}  模型: {Path(mpath).name}",
               f"池 {len(pool)} 檔 (dv20≥5億, ATR20≥3%)；大盤平均跳空 {mkt_gap*100:+.2f}%；上漲比例 {t[t.dv20>=1e8].gap.gt(0).mean()*100:.0f}%"]
+    if dt_note: header.append(dt_note)
     no_trade = []
     if dow in NO_TRADE_DOW: no_trade.append("週一不交易")
     if mkt_gap < MKT_GAP_MIN: no_trade.append(f"大盤平均跳空 {mkt_gap*100:.2f}% < -1%")
@@ -172,7 +186,7 @@ def main():
     out.to_csv(sig/f"{tdate.date()}.csv", index=False, encoding="utf-8-sig")
     pool.assign(elig=pool.flag=="")[["stock_id","name","prev_close","open","gap","atr20","dv20_prev","pred","rank_all","flag","elig"]].to_csv(sig/f"{tdate.date()}_pool.csv", index=False, encoding="utf-8-sig")
     (sig/f"{tdate.date()}.txt").write_text(txt)
-    json.dump({"date": str(tdate.date()), "no_trade": no_trade, "mkt_gap": float(mkt_gap), "n_picks": len(out), "source": source, "model": Path(mpath).name},
+    json.dump({"date": str(tdate.date()), "no_trade": no_trade, "mkt_gap": float(mkt_gap), "n_picks": len(out), "source": source, "model": Path(mpath).name, "daytrade_filter": dt_note},
               open(sig/f"{tdate.date()}_meta.json","w"), ensure_ascii=False)
     print(f"\n已寫入 signals/{tdate.date()}.csv / .txt / _pool.csv")
 
