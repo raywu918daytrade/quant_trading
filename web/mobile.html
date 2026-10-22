@@ -44,6 +44,7 @@ details summary{cursor:pointer;color:var(--accent);font-size:14px}
   </details>
   <h2>查看其他日期</h2>
   <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><input type="date" id="dateIn"><button id="btnDate">載入</button><button id="btnLatest" style="background:transparent;color:var(--accent);border:1px solid var(--accent)">回最新</button></div>
+  <p id="status" class="muted" style="margin:8px 0 0"></p>
   <p class="muted" id="meta"></p>
   <p class="muted">出場規則: 13:30 收盤競價回補；盤中成交價 ≥ 強制回補價 (昨收 +8%) 立即市價回補；無其他停利停損。</p>
 </main>
@@ -60,14 +61,16 @@ function pctCls(v){ return v>0 ? "pos" : v<0 ? "neg" : ""; }
 
 async function load(date){
   const url = SRC ? SRC : BASE + (date ? `${date}.json` : "latest.json") + "?t=" + Date.now();
-  $("banner").className="banner wait"; $("banner").textContent="載入中…";
+  $("banner").className="banner wait"; $("banner").textContent="載入中…"; $("status").textContent = "載入中…";
   let j;
   try{
     const r = await fetch(url, {cache:"no-store"});
-    if(!r.ok) throw new Error(`HTTP ${r.status}` + (date ? ` (${date} 沒有名單)` : ""));
+    if(!r.ok) throw new Error(r.status===404 ? (date ? `${date} 沒有名單 (假日、未交易或尚未產生)` : "尚無最新名單") : `HTTP ${r.status}`);
     j = await r.json();
-  }catch(e){ $("banner").className="banner stop"; $("banner").textContent="讀取失敗: " + e.message; return; }
+  }catch(e){ $("banner").className="banner stop"; $("banner").textContent="讀取失敗: " + e.message; $("status").textContent = "✗ " + e.message; return; }
   render(j);
+  $("status").textContent = `✓ 已載入 ${j.date} 的名單` + (date ? "" : " (最新)");
+  window.scrollTo({top:0, behavior:"smooth"});
 }
 
 function render(j){
