@@ -41,6 +41,11 @@ details summary{cursor:pointer;color:var(--accent);font-size:14px}
     <div class="card"><div class="k">投入金額</div><div class="v" id="cAmt">–</div></div>
   </div>
   <div id="picks" class="list"></div>
+  <h2 style="margin-top:18px">模擬下單 (永豐模擬環境) <small id="paperDate"></small></h2>
+  <div class="cards" id="paperCards"><div class="card" style="grid-column:1/-1"><div class="k">尚無模擬紀錄</div></div></div>
+  <details id="paperDetails" style="display:none"><summary>各檔成交</summary>
+    <div class="wrap"><table><thead><tr><th>代號</th><th>名稱</th><th>券賣</th><th>買回</th><th>出場</th><th>模擬淨%</th><th>tick淨%</th></tr></thead><tbody id="paperBody"></tbody></table></div>
+  </details>
   <details style="margin-top:14px"><summary>表格檢視</summary>
     <div class="wrap"><table><thead><tr><th>代號</th><th>名稱</th><th>開盤</th><th>張數</th><th>金額</th><th>強制回補</th><th>漲停</th></tr></thead><tbody id="tbody"></tbody></table></div>
   </details>
@@ -98,8 +103,33 @@ function render(j){
   $("tbody").innerHTML = picks.map(p => `<tr><td>${p.stock_id}</td><td>${p.name ?? ""}</td><td>${fmt(p.open)}</td><td>${p.lots}</td><td>${money(p.amount)}</td><td>${fmt(p.force_cover)}</td><td>${fmt(p.limit_up)}</td></tr>`).join("");
   $("meta").textContent = `開盤價來源: ${j.source ?? "–"} · 模型: ${j.model ?? "–"} · 發布時間: ${j.published_at ?? "–"}`;
   if(j.date) $("dateIn").value = j.date;
+  loadPaper(j.date);
 }
 
+const PAPER = "https://huggingface.co/datasets/raywu918daytrade/daytrade/resolve/main/db/paper/";
+async function loadPaper(date){
+  try{
+    const r = await fetch(PAPER + (date ? `${date}_summary.json` : "latest.json") + "?t=" + Date.now(), {cache:"no-store"});
+    if(!r.ok) throw 0;
+    const s = await r.json();
+    $("paperDate").textContent = s.date + (s.no_trade && s.no_trade.length ? " · 今日不交易" : "");
+    const pct = v => v==null ? "–" : ((v>0?"+":"") + fmt(v) + "%");
+    $("paperCards").innerHTML = [
+      ["成交 / 名單", `${s.n_filled} / ${s.n_picks}`], ["模擬平均淨報酬", pct(s.sim_avg_net_pct)],
+      ["真實tick平均淨報酬", pct(s.tick_avg_net_pct)], ["勝率", s.sim_win_rate==null ? "–" : Math.round(s.sim_win_rate*100)+"%"],
+      ["強制回補 / 觸及", `${s.n_forced} / ${s.n_touched_force}`], ["模擬淨損益", s.sim_pnl_net==null ? "–" : money(s.sim_pnl_net)+" 元"]
+    ].map(([k,v]) => `<div class="card"><div class="k">${k}</div><div class="v ${/^[+-]/.test(v) ? (v.startsWith("+")?"pos":"neg") : ""}">${v}</div></div>`).join("");
+    try{
+      const t = await fetch(PAPER + `${s.date}_trades.csv?t=` + Date.now(), {cache:"no-store"}); const txt = await t.text();
+      const [head, ...lines] = txt.trim().split(/\r?\n/); const H = head.split(",");
+      const rows = lines.filter(Boolean).map(l => { const cells = l.split(","); const o = {}; H.forEach((h,i)=>o[h]=cells[i]); return o; });
+      if(rows.length && rows[0].stock_id){
+        $("paperBody").innerHTML = rows.map(r => `<tr><td>${r.stock_id}</td><td>${r.name||""}</td><td>${r.sim_sell_px||"–"}</td><td>${r.sim_buy_px||"–"}</td><td>${r.exit_reason==="forced"?"強制":r.exit_reason==="close"?"收盤":"–"}</td><td class="${(+r.sim_net_pct)>0?"pos":"neg"}">${r.sim_net_pct||"–"}</td><td>${r.tick_net_pct||"–"}</td></tr>`).join("");
+        $("paperDetails").style.display = "";
+      } else $("paperDetails").style.display = "none";
+    }catch(e){ $("paperDetails").style.display = "none"; }
+  }catch(e){ $("paperDate").textContent = ""; $("paperCards").innerHTML = `<div class="card" style="grid-column:1/-1"><div class="k">尚無模擬紀錄</div></div>`; $("paperDetails").style.display = "none"; }
+}
 $("btnReload").onclick = () => load($("dateIn").value && $("dateIn").value !== lastLatest ? $("dateIn").value : null);
 $("btnDate").onclick = () => load($("dateIn").value || null);
 $("btnLatest").onclick = () => load(null);

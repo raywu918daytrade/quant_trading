@@ -227,3 +227,16 @@ GitHub Actions (平日 UTC 01:01 = 台灣 09:01, .github/workflows/daily_signals
 **Mac 備援**: 2026-10-23 起以雲端為主，本機 launchd 排程已移除 (`zsh scripts/install_schedule.sh install` 可裝回)；`scripts/webapp.py` 仍可手動用。若 GitHub Actions 失敗 (例如 MIS 擋海外 IP)，在 Mac 09:01 跑 `python3 scripts/daily_candidates.py` 後執行
 `HF_TOKEN=... python3 scripts/publish_signals.py` 即可把名單推到 HF，手機頁照樣看得到。
 若 MIS 完全擋 GitHub IP 的替代方案: Mac 於 09:01 只抓開盤價上傳 HF `db/opens/<date>.csv` (stock_id,open)，雲端 workflow 改用 `--open-csv` 讀它。
+
+## 模擬下單統計 (2026-10-23) — `scripts/paper_trade.py` + `.github/workflows/paper_trade.yml`
+用永豐 Shioaji **模擬環境** (`sj.Shioaji(simulation=True)`, 程式寫死, 永遠不會真的下單) 照定案策略自動執行當日名單並記錄:
+- 08:56 GitHub Actions 啟動 → 等 HF `db/signals/latest.json` 變成今天 (最晚 09:10) → 模擬登入 → 檢查每檔 `contract.day_trade == Yes` (不可現沖券賣的直接略過並記錄)。
+- 09:01:00 每檔市價「現股當沖先賣」(`daytrade_short=True`)，同時訂閱 tick。
+- 盤中任一 tick ≥ 強制回補價 (昨收 +8%) → 立即市價買回 (`exit_reason=forced`)。
+- 13:26 剩餘部位市價買回 (參與 13:30 收盤競價)；13:35 結算。
+- 每檔同時記兩組數字: **模擬成交價** (券賣/買回) 與 **真實 tick** 算的 09:01~09:03 VWAP 與最後成交價 (回測的假設)。兩者差距就是模擬撮合的偏差；前幾天先看 `sim_net_pct` 與 `tick_net_pct` 是否接近，再決定信哪個。
+- 輸出 `paper/<date>_trades.csv`、`<date>_summary.json`，`--publish` 上傳 HF `db/paper/` 並累計 `db/paper/summary.csv`；手機頁「模擬下單」區直接顯示。
+- 需要 GitHub Secrets `SINOPAC_API_KEY`、`SINOPAC_SECRET_KEY` (模擬環境不需要 CA 憑證)。`sinopac_probe.yml` 手動觸發可驗證 GitHub runner 能否登入永豐。
+- 本機: `python3.12 -m venv .venv && .venv/bin/pip install shioaji pandas requests huggingface_hub`，然後
+  `.venv/bin/python scripts/paper_trade.py --env-file <有 SINOPAC_* 的 .env> --dry` (非盤中測試) 或盤中不加 `--dry` 正式跑。
+- 限制: 模擬環境不支援興櫃與零股；模擬撮合規則永豐未公開；成本假設 0.23% 來回與回測相同。

@@ -1,0 +1,21 @@
+name: Sinopac probe (simulation login from GitHub runner)
+on:
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q shioaji requests pandas
+      - name: Dry-run paper_trade.py (simulation login, contracts, snapshots; no orders)
+        env:
+          SINOPAC_API_KEY: ${{ secrets.SINOPAC_API_KEY }}
+          SINOPAC_SECRET_KEY: ${{ secrets.SINOPAC_SECRET_KEY }}
+          TZ: Asia/Taipei
+        run: |
+          D=$(python3 -c "import requests;print(requests.get('https://huggingface.co/datasets/raywu918daytrade/daytrade/resolve/main/db/signals/latest.json').json()['date'])")
+          python3 scripts/paper_trade.py --dry --date "$D" 2>&1 | grep -v -i "api_key\|secret"
