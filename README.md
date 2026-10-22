@@ -209,16 +209,16 @@ GitHub Actions (平日 UTC 01:01 = 台灣 09:01, .github/workflows/daily_signals
   → 從 HF 抓最近 6 個月 db/d1 + db/info/info.parquet, 重建 data/processed/d1.parquet  (daily_candidates.refresh_d1(6))
   → scripts/daily_candidates.py (向證交所 MIS 抓約 560 檔開盤價, 跑模型, 寫 signals/<date>.*)
   → scripts/publish_signals.py (上傳 signals/<date>.* 到 HF db/signals/, 並寫 <date>.json 與 latest.json)
-手機: 開 https://raywu918python.github.io/quant_trading/web/mobile.html (GitHub Pages, 加到主畫面即可), 它直接 fetch
+手機: 開 https://raywu918daytrade.github.io/quant_trading/web/mobile.html (GitHub Pages, 加到主畫面即可), 它直接 fetch
   https://huggingface.co/datasets/raywu918daytrade/daytrade/resolve/main/db/signals/latest.json
   (HF 的 CORS 允許瀏覽器直接讀; ?date=YYYY-MM-DD 可看歷史名單)
 ```
-- GitHub repo: https://github.com/raywu918python/quant_trading (公開; data/ logs/ signals/ 不進版控)。改了 scripts/ 或 models/ 要 push 才會生效。
+- GitHub repo: https://github.com/raywu918daytrade/quant_trading (公開; data/ logs/ signals/ 不進版控)。改了 scripts/ 或 models/ 要 push 才會生效。push 含 workflow 的 commit 需要 gh token 有 `workflow` scope (目前只有 raywu918python 有, 它是協作者)。
 - 已驗證 (2026-10-23): GitHub runner 可連 mis.twse.com.tw (mis_probe)；用 date=2026-10-22 回放跑完整 workflow，結果與本機一致，HF 上出現 db/signals/latest.json。
 - 需要 60 個交易日以上歷史 (ret60/ma60)，所以雲端抓 6 個月 D1；`--refresh --months N` 可調。
 - `HF_TOKEN` 放 GitHub repo Settings → Secrets → Actions；必須是對 `raywu918daytrade/daytrade` 有寫入權的 token。workflow 不會印出 token。
 - `.github/workflows/mis_probe.yml`: 手動觸發，只抓 5 檔開盤價，用來驗證 GitHub runner 能連到 `mis.twse.com.tw`。
-- 準時觸發: cron-job.org (job 「quant_trading daily signals 09:01」) 每個平日台灣 09:01 打 GitHub `workflow_dispatch`，秒級準時；`scripts/setup_cronjob.py --env-file .env --test` 可重建/更新該 job (需要 cron-job.org API key 與 raywu918python 的 GitHub token, 只給 Actions 寫入權)。
+- 準時觸發: cron-job.org (job 「quant_trading daily signals 09:01」) 每個平日台灣 09:01 打 GitHub `workflow_dispatch`，秒級準時；`scripts/setup_cronjob.py --env-file .env --test` 可重建/更新該 job (需要 cron-job.org API key 與 raywu918daytrade 的 GitHub token, 只給 Actions 寫入權)。
 - GitHub 自己的 cron 改為台灣 09:15 當備援 (可能延遲 3~15 分鐘)；同一天跑兩次結果相同，只是覆寫同一份檔案。
 - 假日/非盤中: MIS 回前一交易日的日期，`daily_candidates.py` 會拒絕產生名單 (exit 非 0)，workflow 顯示失敗、`latest.json` 維持上一次名單，屬預期行為。
 - 手動補跑: GitHub → Actions → Daily signals → Run workflow (可填 `date` 回放歷史日)。

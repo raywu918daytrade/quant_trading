@@ -11,7 +11,7 @@
 """
 import os, sys, json, requests
 
-OWNER, REPO, WF = "raywu918python", "quant_trading", "daily_signals.yml"
+OWNER, REPO, WF = "raywu918daytrade", "quant_trading", "daily_signals.yml"
 TITLE = "quant_trading daily signals 09:01"
 DISPATCH_URL = f"https://api.github.com/repos/{OWNER}/{REPO}/actions/workflows/{WF}/dispatches"
 API = "https://api.cron-job.org"
@@ -35,7 +35,7 @@ def main():
         for i, a in enumerate(sys.argv):
             if a == "--env-file": env.update(read_env_file(sys.argv[i + 1]))
         key = key or env.get("CRONJOB_API_KEY_DAY_TRADE") or env.get("CORN_JOB_TOKEN_DAY_TRADE") or env.get("CRONJOB_API_KEY")
-        gh = gh or env.get("GITHUB_DISPATCH_TOKEN_DAY_TRADE") or env.get("GITHUB_RAYWU918PYTHON") or env.get("GH_DISPATCH_TOKEN") or env.get("GITHUB_DAY_TRADE")
+        gh = gh or env.get("GITHUB_DISPATCH_TOKEN_DAY_TRADE") or env.get("GITHUB_DAY_TRADE") or env.get("GH_DISPATCH_TOKEN") or env.get("GITHUB_RAYWU918PYTHON")
         print("在 .env 找到的候選變數:", [k for k in env if "CRON" in k.upper() or "CORN" in k.upper() or "DISPATCH" in k.upper() or "GITHUB" in k.upper()])
     if bool(key) != bool(gh):   # 只有一把: 判斷它是哪一邊的 (只看狀態碼, 不印值)
         tok = key or gh
@@ -55,7 +55,7 @@ def main():
         print("GitHub dispatch 測試:", r.status_code, "(204 = 成功觸發)" if r.status_code == 204 else r.text[:200])
         if r.status_code != 204:
             sys.exit("這把 GitHub token 無法觸發 raywu918python/quant_trading 的 workflow (404/403 = 沒權限)。"
-                     "請用 raywu918python 帳號到 https://github.com/settings/personal-access-tokens/new 建 fine-grained token"
+                     "請用 raywu918daytrade 帳號到 https://github.com/settings/personal-access-tokens/new 建 fine-grained token"
                      " (只選 quant_trading repo, Actions: Read and write)，加進 .env 叫 GITHUB_DISPATCH_TOKEN_DAY_TRADE 再跑。")
 
     job = {"title": TITLE, "url": DISPATCH_URL, "enabled": True, "saveResponses": True,
