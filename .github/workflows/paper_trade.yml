@@ -1,9 +1,7 @@
 name: Paper trade (Sinopac simulation, 09:01-13:35)
 on:
-  schedule:
-    # 備援: 平日台灣 08:58 = UTC 00:58。主線是 cron-job.org 於 08:50 準時打 workflow_dispatch (scripts/setup_cronjob.py)。
-    # 腳本自己等 HF 名單 (最晚 09:10) 與 09:01 進場, 跑到 13:35; 若超過 09:04 才進場會自動放棄 (避免備援太晚啟動在盤中亂下單)。
-    - cron: "58 0 * * 1-5"
+  # 不用 GitHub 自己的 schedule, 只由 cron-job.org 於平日台灣 08:50 打 workflow_dispatch (見 scripts/setup_cronjob.py)。
+  # 腳本自己等 HF 名單 (最晚 09:10) 與 09:01 進場, 跑到 13:35; 若超過 09:04 才進場會自動放棄。
   workflow_dispatch:
     inputs:
       date:

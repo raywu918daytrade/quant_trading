@@ -220,7 +220,7 @@ GitHub Actions (平日 UTC 01:01 = 台灣 09:01, .github/workflows/daily_signals
 - `HF_TOKEN` 放 GitHub repo Settings → Secrets → Actions；必須是對 `raywu918daytrade/daytrade` 有寫入權的 token。workflow 不會印出 token。
 - `.github/workflows/mis_probe.yml`: 手動觸發，只抓 5 檔開盤價，用來驗證 GitHub runner 能連到 `mis.twse.com.tw`。
 - 準時觸發: cron-job.org (job 「quant_trading daily signals 09:01」) 每個平日台灣 09:01 打 GitHub `workflow_dispatch`，秒級準時；`scripts/setup_cronjob.py --env-file .env --test` 可重建/更新該 job (需要 cron-job.org API key 與 raywu918daytrade 的 GitHub token, 只給 Actions 寫入權)。
-- GitHub 自己的 cron 改為台灣 09:15 當備援 (可能延遲 3~15 分鐘)；同一天跑兩次結果相同，只是覆寫同一份檔案。
+- 兩條 workflow 都不用 GitHub 自己的 schedule (會延遲、且 60 天沒 commit 會被停用)，只由 cron-job.org 觸發，不會跑兩次。cron-job.org 掛掉就不會有名單，此時手動到 Actions 按 Run workflow，或用 Mac 跑 `daily_candidates.py` + `publish_signals.py`。
 - 假日/非盤中: MIS 回前一交易日的日期，`daily_candidates.py` 會拒絕產生名單 (exit 非 0)，workflow 顯示失敗、`latest.json` 維持上一次名單，屬預期行為。
 - 手動補跑: GitHub → Actions → Daily signals → Run workflow (可填 `date` 回放歷史日)。
 
@@ -230,7 +230,7 @@ GitHub Actions (平日 UTC 01:01 = 台灣 09:01, .github/workflows/daily_signals
 
 ## 模擬下單統計 (2026-10-23) — `scripts/paper_trade.py` + `.github/workflows/paper_trade.yml`
 用永豐 Shioaji **模擬環境** (`sj.Shioaji(simulation=True)`, 程式寫死, 永遠不會真的下單) 照定案策略自動執行當日名單並記錄:
-- 08:50 cron-job.org 打 `workflow_dispatch` 啟動 GitHub Actions (GitHub 自己的排程 08:58 當備援；超過 09:04 才進場會自動放棄) → 等 HF `db/signals/latest.json` 變成今天 (最晚 09:10) → 模擬登入 → 檢查每檔 `contract.day_trade == Yes` (不可現沖券賣的直接略過並記錄)。
+- 08:50 cron-job.org 打 `workflow_dispatch` 啟動 GitHub Actions (沒有 GitHub 自己的排程；超過 09:04 才進場會自動放棄) → 等 HF `db/signals/latest.json` 變成今天 (最晚 09:10) → 模擬登入 → 檢查每檔 `contract.day_trade == Yes` (不可現沖券賣的直接略過並記錄)。
 - 09:01:00 每檔市價「現股當沖先賣」(`daytrade_short=True`)，同時訂閱 tick。
 - 盤中任一 tick ≥ 強制回補價 (昨收 +8%) → 立即市價買回 (`exit_reason=forced`)。
 - 13:26 剩餘部位市價買回 (參與 13:30 收盤競價)；13:35 結算。
