@@ -143,6 +143,7 @@ class Paper:
             if code not in self.covered and (code, "Sell") in self.orders and price >= p["force_cover"] and code not in self.forced:
                 self.forced.add(code)
                 log(f"⚠ {code} {p.get('name','')} 觸及強制回補價 {p['force_cover']} (成交 {price}) → 市價買回")
+                if not self.deals[(code, "Sell")]: self.refresh_deals_from_status()
                 self.cover(code, "forced")
                 threading.Thread(target=self.push_live, args=("running",), daemon=True).start()
         except Exception as e:
@@ -172,11 +173,21 @@ class Paper:
                 self.skipped[code] = f"券賣委託失敗: {e}"; log("✗", code, self.skipped[code])
 
     def cover(self, code, reason):
+        """買回張數 = 券賣『實際成交』張數 (部分成交只買回成交的部分; 完全沒成交就不買, 並取消還掛著的券賣單)."""
         import shioaji as sj
         if code in self.covered: return
         p = self.by_code[code]
+        sell_trade = self.orders.get((code, "Sell"))
+        if sell_trade is not None:
+            try:   # 先取消還沒成交的券賣單, 避免回補後它才成交變成裸空
+                st = str(getattr(sell_trade.status, "status", ""))
+                if "Filled" not in st or "PartFilled" in st: self.api.cancel_order(sell_trade); log(f"取消未成交券賣單 {code} ({st})")
+            except Exception as e: log(f"取消券賣單 {code} 失敗 (可能已成交): {e}")
+        _, filled = self.avg((code, "Sell"))
+        if filled <= 0:
+            self.covered.add(code); p["_exit_reason"] = "no_fill"; log(f"{code} 券賣未成交, 不買回"); return
         try:
-            self.orders[(code, "Buy")] = self.order(code, sj.Action.Buy, int(p["lots"]))
+            self.orders[(code, "Buy")] = self.order(code, sj.Action.Buy, int(filled))
             self.covered.add(code); p["_exit_reason"] = reason
         except Exception as e:
             log("✗ 買回委託失敗", code, e)
@@ -196,6 +207,7 @@ class Paper:
                 if code in self.skipped: st = "略過"
                 elif (code, "Sell") not in self.orders: st = "未進場"
                 elif not sell_px: st = "券賣未成交"
+                elif p.get("_exit_reason") == "no_fill": st = "券賣未成交"
                 elif buy_px: st = "已強制回補" if p.get("_exit_reason") == "forced" else "已收盤回補"
                 elif code in self.covered: st = "回補中"
                 else: st = "持有中"
@@ -355,7 +367,7 @@ def main():
         if (now() - last_hb).total_seconds() >= LIVE_EVERY:
             last_hb = now(); pt.refresh_deals_from_status(); snap = pt.push_live("running")
             log("心跳", f"持有 {snap['n_open']} 檔 未實現 {snap['pnl_pct']}% ({snap['pnl_gross']:,} 元)", " ".join(f"{r['stock_id']}:{r['status']}@{r['last']}" for r in snap["positions"]))
-    pt.cover_all("close")
+    pt.refresh_deals_from_status(); pt.cover_all("close")
     time.sleep(3); pt.push_live("closing")
     log("收盤前回補單已送出, 等成交到 13:35 ...")
     sleep_until(at(*END_T))
