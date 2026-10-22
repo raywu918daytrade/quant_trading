@@ -33,7 +33,8 @@ ENTRY_T = (9, 1, 0)       # 進場時間
 VWAP_WIN = ((9, 1, 0), (9, 3, 0))   # 真實 tick 基準: 09:01~09:03 VWAP
 EXIT_T = (13, 26, 0)      # 收盤前市價回補 (參與 13:30 收盤競價)
 END_T = (13, 35, 0)
-LATE_ABORT_T = (9, 4, 0)  # 超過這時間還沒進場 (例如備援排程太晚啟動) 就放棄, 不在盤中亂下單
+LATE_ABORT_T = (9, 4, 0)
+LIVE_EVERY = 300          # 盤中每 5 分鐘寫一次 live.json (持倉與未實現損益) 到 HF  # 超過這時間還沒進場 (例如備援排程太晚啟動) 就放棄, 不在盤中亂下單
 
 def now(): return datetime.now(TZ)
 def at(h, m, s=0): return now().replace(hour=h, minute=m, second=s, microsecond=0)
@@ -143,6 +144,7 @@ class Paper:
                 self.forced.add(code)
                 log(f"⚠ {code} {p.get('name','')} 觸及強制回補價 {p['force_cover']} (成交 {price}) → 市價買回")
                 self.cover(code, "forced")
+                threading.Thread(target=self.push_live, args=("running",), daemon=True).start()
         except Exception as e:
             log("tick callback error:", e)
 
@@ -182,6 +184,41 @@ class Paper:
     def cover_all(self, reason):
         for p in self.picks:
             if (p["stock_id"], "Sell") in self.orders and p["stock_id"] not in self.covered: self.cover(p["stock_id"], reason)
+
+    # ---- 盤中狀態 ----
+    def live_snapshot(self, status):
+        rows = []; pnl = 0.0; amt = 0.0
+        with self.lock:
+            for p in self.picks:
+                code = p["stock_id"]
+                sell_px, sell_q = self.avg((code, "Sell")); buy_px, buy_q = self.avg((code, "Buy"))
+                last = self.ticks[code][-1][1] if self.ticks[code] else None
+                if code in self.skipped: st = "略過"
+                elif (code, "Sell") not in self.orders: st = "未進場"
+                elif not sell_px: st = "券賣未成交"
+                elif buy_px: st = "已強制回補" if p.get("_exit_reason") == "forced" else "已收盤回補"
+                elif code in self.covered: st = "回補中"
+                else: st = "持有中"
+                ref = buy_px or last
+                upnl = (sell_px / ref - 1) * 100 if (sell_px and ref) else None
+                if sell_px and ref: pnl += (sell_px - ref) * 1000 * sell_q; amt += sell_px * 1000 * sell_q
+                rows.append({"stock_id": code, "name": p.get("name"), "lots": p.get("lots"), "status": st, "sell_px": sell_px, "last": last,
+                             "buy_px": buy_px, "pnl_pct": None if upnl is None else round(upnl, 2), "high": self.high.get(code) or None,
+                             "force_cover": p.get("force_cover"), "skipped": self.skipped.get(code, "")})
+        return {"date": self.date, "status": status, "updated_at": now().strftime("%Y-%m-%d %H:%M:%S"), "n_open": sum(1 for r in rows if r["status"] == "持有中"),
+                "pnl_gross": round(pnl), "pnl_pct": round(pnl / amt * 100, 3) if amt else None, "amount": round(amt), "positions": rows}
+
+    def push_live(self, status):
+        snap = self.live_snapshot(status)
+        try:
+            json.dump(snap, open(PAPER/"live.json", "w"), ensure_ascii=False, indent=1)
+            if os.environ.get("HF_TOKEN"):
+                from huggingface_hub import HfApi
+                HfApi(token=os.environ["HF_TOKEN"]).upload_file(path_or_fileobj=str(PAPER/"live.json"), path_in_repo="db/paper/live.json", repo_id=REPO, repo_type="dataset",
+                                                               commit_message=f"paper live {snap['date']} {snap['updated_at'][11:]} {status}")
+        except Exception as e:
+            log("live.json 上傳失敗:", e)
+        return snap
 
     # ---- settle ----
     def refresh_deals_from_status(self):
@@ -310,15 +347,16 @@ def main():
     if now() > at(*LATE_ABORT_T):
         log(f"現在 {now().strftime('%H:%M:%S')} 已超過 {LATE_ABORT_T[0]:02d}:{LATE_ABORT_T[1]:02d}，太晚進場，放棄 (今天不做模擬)"); api.logout(); sys.exit(2)
     pt.enter()
-    log("進場完成, 盯盤到 13:26 ...")
+    time.sleep(5); pt.refresh_deals_from_status(); snap = pt.push_live("running")
+    log(f"進場完成 (持有 {snap['n_open']} 檔), 盯盤到 13:26, 每 {LIVE_EVERY//60} 分鐘更新 live.json ...")
     t_exit = at(*EXIT_T); last_hb = now()
     while now() < t_exit:
         time.sleep(1)
-        if (now() - last_hb).total_seconds() >= 600:
-            last_hb = now(); pt.refresh_deals_from_status()
-            st = [f"{p['stock_id']}:{'C' if p['stock_id'] in pt.covered else 'S' if (p['stock_id'],'Sell') in pt.orders else '-'} hi={pt.high.get(p['stock_id'])}" for p in picks]
-            log("心跳", " ".join(st))
+        if (now() - last_hb).total_seconds() >= LIVE_EVERY:
+            last_hb = now(); pt.refresh_deals_from_status(); snap = pt.push_live("running")
+            log("心跳", f"持有 {snap['n_open']} 檔 未實現 {snap['pnl_pct']}% ({snap['pnl_gross']:,} 元)", " ".join(f"{r['stock_id']}:{r['status']}@{r['last']}" for r in snap["positions"]))
     pt.cover_all("close")
+    time.sleep(3); pt.push_live("closing")
     log("收盤前回補單已送出, 等成交到 13:35 ...")
     sleep_until(at(*END_T))
     rows = pt.settle(); summ = summarize(rows, d, no_trade, "simulation")
@@ -327,6 +365,7 @@ def main():
     json.dump(summ, open(PAPER/f"{d}_summary.json", "w"), ensure_ascii=False, indent=1)
     log("結算:", json.dumps(summ, ensure_ascii=False))
     for r in rows: log(f"  {r['stock_id']} {r['name']}: 券賣 {r['sim_sell_px']} 買回 {r['sim_buy_px']} ({r['exit_reason']}) 模擬淨 {r['sim_net_pct']}% | tick VWAP {r['tick_vwap_0901_0903']} 收 {r['tick_last']} 淨 {r['tick_net_pct']}% 高 {r['tick_high']} {r['skipped']}")
+    pt.push_live("done")
     try: api.logout()
     except Exception: pass
     if a.publish: publish(d, rows, summ)

@@ -242,6 +242,7 @@ GitHub Actions (平日 UTC 01:01 = 台灣 09:01, .github/workflows/daily_signals
 - 13:26 剩餘部位市價買回 (參與 13:30 收盤競價)；13:35 結算。
 - 每檔同時記兩組數字: **模擬成交價** (券賣/買回) 與 **真實 tick** 算的 09:01~09:03 VWAP 與最後成交價 (回測的假設)。兩者差距就是模擬撮合的偏差；前幾天先看 `sim_net_pct` 與 `tick_net_pct` 是否接近，再決定信哪個。
 - 輸出 `paper/<date>_trades.csv`、`<date>_summary.json`，`--publish` 上傳 HF `db/paper/` 並累計 `db/paper/summary.csv`；手機頁「模擬下單」區直接顯示。
+- 盤中狀態: 進場後、每 5 分鐘、每次強制回補時寫 `db/paper/live.json` (各檔狀態、券賣價、現價、未實現損益)，手機頁盤中顯示「持有 N 檔 / 未實現損益」表，13:35 結算後自動換成最終結果。
 - 需要 GitHub Secrets `SINOPAC_API_KEY`、`SINOPAC_SECRET_KEY` (模擬環境不需要 CA 憑證)。`sinopac_probe.yml` 手動觸發可驗證 GitHub runner 能否登入永豐。
 - 本機: `python3.12 -m venv .venv && .venv/bin/pip install shioaji pandas requests huggingface_hub`，然後
   `.venv/bin/python scripts/paper_trade.py --env-file <有 SINOPAC_* 的 .env> --dry` (非盤中測試) 或盤中不加 `--dry` 正式跑。
