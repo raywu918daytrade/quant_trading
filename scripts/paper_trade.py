@@ -24,10 +24,16 @@ from collections import defaultdict
 import requests
 
 ROOT = Path(__file__).resolve().parent.parent
-PAPER = ROOT / "paper"
 TZ = ZoneInfo("Asia/Taipei")
 REPO = "raywu918daytrade/daytrade"
+VARIANT = "base"                      # main() 依 --variant 設定; seq = 影子模型 (K 線序列), 帳本與 HF 路徑分開
+PAPER = ROOT / "paper"; HF_PREFIX = "db/paper"
 SIGNALS_URL = f"https://huggingface.co/datasets/{REPO}/resolve/main/db/signals/latest.json"
+def set_variant(v):
+    global VARIANT, PAPER, HF_PREFIX, SIGNALS_URL
+    VARIANT = v; sfx = "" if v == "base" else "_" + v
+    PAPER = ROOT / ("paper" + sfx); HF_PREFIX = "db/paper" + sfx
+    SIGNALS_URL = f"https://huggingface.co/datasets/{REPO}/resolve/main/db/signals/latest{sfx}.json"
 COST_RT = 0.0023          # 來回成本 (券賣手續費+稅+買回手續費), 與回測相同
 ENTRY_T = (9, 1, 0)       # 進場時間
 VWAP_WIN = ((9, 1, 0), (9, 3, 0))   # 真實 tick 基準: 09:01~09:03 VWAP
@@ -83,6 +89,8 @@ def fetch_signals(date_str, wait_until=None, local_csv=None):
         import pandas as pd
         from publish_signals import COLS
         df = pd.read_csv(local_csv, dtype={"stock_id": str}, encoding="utf-8-sig").rename(columns=COLS)
+        for c in ["prev_close","open","force_cover","limit_up"]:
+            if c in df: df[c] = df[c].astype(float).round(2)   # 與 publish_signals.build_json 一致, 去掉 float32 尾巴
         meta_p = Path(local_csv).with_name(Path(local_csv).stem + "_meta.json")
         meta = json.load(open(meta_p)) if meta_p.exists() else {}
         return meta.get("date", date_str), meta.get("no_trade", []), df.to_dict(orient="records")
@@ -119,6 +127,8 @@ class Paper:
             if eid in self.seen_events: return
             self.seen_events.add(eid)
             s = str(stat)
+            cf = msg.get("custom_field") if "Deal" in s else (msg.get("order", {}) or {}).get("custom_field")
+            if cf not in (None, "", VARIANT[:6]): return      # 另一個變體 (同帳戶) 的委託/成交, 略過
             if "Deal" in s:
                 code, action = msg.get("code"), str(msg.get("action"))
                 act = "Sell" if "Sell" in action else "Buy"
@@ -156,7 +166,7 @@ class Paper:
         import shioaji as sj
         c = self.contracts[code]
         kw = dict(price=0, quantity=qty, action=action, price_type=sj.StockPriceType.MKT, order_type=sj.OrderType.ROD,
-                  order_lot=sj.StockOrderLot.Common, account=self.api.stock_account)
+                  order_lot=sj.StockOrderLot.Common, account=self.api.stock_account, custom_field=VARIANT[:6])   # 兩個變體共用同一模擬帳戶, 用 custom_field 區分回報
         if daytrade_short: kw["daytrade_short"] = True
         else: kw["order_cond"] = sj.StockOrderCond.Cash
         trade = self.api.place_order(c, self.api.Order(**kw))
@@ -228,8 +238,8 @@ class Paper:
             json.dump(snap, open(PAPER/"live.json", "w"), ensure_ascii=False, indent=1)
             if os.environ.get("HF_TOKEN"):
                 from huggingface_hub import HfApi
-                HfApi(token=os.environ["HF_TOKEN"]).upload_file(path_or_fileobj=str(PAPER/"live.json"), path_in_repo="db/paper/live.json", repo_id=REPO, repo_type="dataset",
-                                                               commit_message=f"paper live {snap['date']} {snap['updated_at'][11:]} {status}")
+                HfApi(token=os.environ["HF_TOKEN"]).upload_file(path_or_fileobj=str(PAPER/"live.json"), path_in_repo=f"{HF_PREFIX}/live.json", repo_id=REPO, repo_type="dataset",
+                                                               commit_message=f"paper{'' if VARIANT=='base' else ' '+VARIANT} live {snap['date']} {snap['updated_at'][11:]} {status}")
         except Exception as e:
             log("live.json 上傳失敗:", e)
         return snap
@@ -295,27 +305,28 @@ def publish(date_str, rows, summ):
     api = HfApi(token=token)
     # 累計 summary.csv
     try:
-        p = hf_hub_download(REPO, "db/paper/summary.csv", repo_type="dataset", force_download=True); hist = list(csv.DictReader(open(p, encoding="utf-8")))
+        p = hf_hub_download(REPO, f"{HF_PREFIX}/summary.csv", repo_type="dataset", force_download=True); hist = list(csv.DictReader(open(p, encoding="utf-8")))
     except Exception: hist = []
     hist = [h for h in hist if h.get("date") != date_str] + [{k: ("" if v is None else v) for k, v in summ.items() if k != "no_trade"}]
     keys = list(hist[-1].keys()); buf = []
     import io; sio = io.StringIO(); w = csv.DictWriter(sio, fieldnames=keys, extrasaction="ignore"); w.writeheader(); [w.writerow(h) for h in hist]
-    ops = [CommitOperationAdd(f"db/paper/{date_str}_trades.csv", str(PAPER/f"{date_str}_trades.csv")),
-           CommitOperationAdd(f"db/paper/{date_str}_summary.json", str(PAPER/f"{date_str}_summary.json")),
-           CommitOperationAdd("db/paper/latest.json", str(PAPER/f"{date_str}_summary.json")),
-           CommitOperationAdd("db/paper/summary.csv", sio.getvalue().encode("utf-8"))]
-    api.create_commit(repo_id=REPO, repo_type="dataset", operations=ops, commit_message=f"paper {date_str}: {summ['n_filled']} filled, net {summ['sim_avg_net_pct']}%")
-    log(f"已上傳 db/paper/ ({date_str}), 累計 {len(hist)} 天")
+    ops = [CommitOperationAdd(f"{HF_PREFIX}/{date_str}_trades.csv", str(PAPER/f"{date_str}_trades.csv")),
+           CommitOperationAdd(f"{HF_PREFIX}/{date_str}_summary.json", str(PAPER/f"{date_str}_summary.json")),
+           CommitOperationAdd(f"{HF_PREFIX}/latest.json", str(PAPER/f"{date_str}_summary.json")),
+           CommitOperationAdd(f"{HF_PREFIX}/summary.csv", sio.getvalue().encode("utf-8"))]
+    api.create_commit(repo_id=REPO, repo_type="dataset", operations=ops, commit_message=f"paper{'' if VARIANT=='base' else ' '+VARIANT} {date_str}: {summ['n_filled']} filled, net {summ['sim_avg_net_pct']}%")
+    log(f"已上傳 {HF_PREFIX}/ ({date_str}), 累計 {len(hist)} 天")
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--env-file", action="append", default=[]); ap.add_argument("--dry", action="store_true", help="登入+讀名單+查合約, 不下單不等待")
     ap.add_argument("--signals", default=None, help="本機 signals/<date>.csv (預設抓 HF latest.json)"); ap.add_argument("--publish", action="store_true")
     ap.add_argument("--date", default=None, help="覆寫日期 (測試用)"); ap.add_argument("--force-trade", action="store_true", help="忽略 no_trade 仍下單 (測試用)")
-    a = ap.parse_args()
+    ap.add_argument("--variant", default="base", choices=["base","seq"], help="seq = 影子模型名單 (latest_seq.json), 帳本 paper_seq/, HF db/paper_seq/")
+    a = ap.parse_args(); set_variant(a.variant)
     for f in a.env_file: load_env_file(f)
     if not os.environ.get("SINOPAC_API_KEY") or not os.environ.get("SINOPAC_SECRET_KEY"): sys.exit("缺少 SINOPAC_API_KEY / SINOPAC_SECRET_KEY")
-    PAPER.mkdir(exist_ok=True)
+    PAPER.mkdir(exist_ok=True); log(f"變體: {VARIANT}, 帳本 {PAPER.name}/, 名單 {SIGNALS_URL.split('/')[-1]}")
     date_str = a.date or now().strftime("%Y-%m-%d")
     if now().weekday() >= 5 and not a.dry: sys.exit("週末不跑")
 
@@ -383,7 +394,7 @@ def main():
     time.sleep(3); pt.push_live("closing")
     log("收盤前回補單已送出, 等成交到 13:35 ...")
     sleep_until(at(*END_T))
-    rows = pt.settle(); summ = summarize(rows, d, no_trade, "simulation")
+    rows = pt.settle(); summ = summarize(rows, d, no_trade, "simulation" + ("" if VARIANT == "base" else f" ({VARIANT})"))
     with open(PAPER/f"{d}_trades.csv", "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0].keys()) if rows else ["date"]); w.writeheader(); w.writerows(rows)
     json.dump(summ, open(PAPER/f"{d}_summary.json", "w"), ensure_ascii=False, indent=1)

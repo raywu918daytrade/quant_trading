@@ -19,9 +19,9 @@ COLS = {"stock_id":"stock_id","name":"name","昨收":"prev_close","開盤":"open
         "20日均額(億)":"dv20_yi","模型分數%":"pred_pct","池內排名":"rank","張數":"lots","金額":"amount",
         "強制回補價(昨收+8%)":"force_cover","漲停價":"limit_up"}
 
-def build_json(date: str) -> dict:
-    meta = json.load(open(SIG/f"{date}_meta.json"))
-    csv = SIG/f"{date}.csv"
+def build_json(date: str, sfx: str = "") -> dict:
+    meta = json.load(open(SIG/f"{date}{sfx}_meta.json"))
+    csv = SIG/f"{date}{sfx}.csv"
     picks = []
     if csv.exists() and csv.stat().st_size > 0:
         df = pd.read_csv(csv, dtype={"stock_id": str}, encoding="utf-8-sig")
@@ -32,11 +32,11 @@ def build_json(date: str) -> dict:
             df["lots"] = df.lots.astype(int); df["amount"] = df.amount.round(0).astype(int); df["rank"] = df["rank"].astype(int)
             picks = df.to_dict(orient="records")
     pool_n = None
-    pcsv = SIG/f"{date}_pool.csv"
+    pcsv = SIG/f"{date}{sfx}_pool.csv"
     if pcsv.exists():
         pool_n = int(len(pd.read_csv(pcsv, usecols=["stock_id"])))
     tz8 = timezone(timedelta(hours=8))
-    return {"date": meta["date"], "no_trade": meta.get("no_trade", []), "mkt_gap": meta.get("mkt_gap"),
+    return {"date": meta["date"], "variant": meta.get("variant", "base"), "no_trade": meta.get("no_trade", []), "mkt_gap": meta.get("mkt_gap"),
             "n_picks": len(picks), "pool_n": pool_n, "total_amount": int(sum(p["amount"] for p in picks)),
             "source": meta.get("source"), "model": meta.get("model"),
             "published_at": datetime.now(tz8).strftime("%Y-%m-%d %H:%M:%S +0800"), "picks": picks}
@@ -60,9 +60,16 @@ def main():
     ops = [CommitOperationAdd(path_in_repo=f"{PREFIX}/{f.name}", path_or_fileobj=str(f)) for f in files]
     ops += [CommitOperationAdd(path_in_repo=f"{PREFIX}/{date}.json", path_or_fileobj=js),
             CommitOperationAdd(path_in_repo=f"{PREFIX}/latest.json", path_or_fileobj=js)]
-    info = api.create_commit(repo_id=REPO, repo_type="dataset", operations=ops,
-                             commit_message=f"signals {date}: {payload['n_picks']} picks" + (" (no trade)" if payload["no_trade"] else ""))
-    print(f"已上傳 {len(ops)} 個檔案到 {REPO}/{PREFIX} (date={date}, picks={payload['n_picks']}, no_trade={payload['no_trade']})")
+    msg = f"signals {date}: {payload['n_picks']} picks" + (" (no trade)" if payload["no_trade"] else "")
+    # 影子模型 (seq) 名單: 有就一起上傳, 寫 <date>_seq.json 與 latest_seq.json
+    seq_files = [SIG/f"{date}_seq{s}" for s in (".csv", ".txt", "_pool.csv", "_meta.json")]
+    if all(f.exists() for f in seq_files):
+        pj = build_json(date, "_seq"); sjs = json.dumps(pj, ensure_ascii=False, indent=1).encode("utf-8")
+        ops += [CommitOperationAdd(path_in_repo=f"{PREFIX}/{f.name}", path_or_fileobj=str(f)) for f in seq_files]
+        ops += [CommitOperationAdd(path_in_repo=f"{PREFIX}/{date}_seq.json", path_or_fileobj=sjs), CommitOperationAdd(path_in_repo=f"{PREFIX}/latest_seq.json", path_or_fileobj=sjs)]
+        msg += f"; seq {pj['n_picks']} picks"
+    info = api.create_commit(repo_id=REPO, repo_type="dataset", operations=ops, commit_message=msg)
+    print(f"已上傳 {len(ops)} 個檔案到 {REPO}/{PREFIX} ({msg})")
     print("commit:", getattr(info, "oid", "") or getattr(info, "commit_url", ""))
 
 if __name__ == "__main__":

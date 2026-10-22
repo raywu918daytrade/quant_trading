@@ -8,3 +8,4 @@ __pycache__/
 *.token
 .venv/
 paper/
+paper_seq/

@@ -63,9 +63,10 @@ def fetch_twse_opens(stock_ids, markets, sleep=0.4):
         time.sleep(sleep)
     return pd.DataFrame(out)
 
-def latest_model():
-    fs = sorted(glob.glob(str(ROOT/"models/lgbm_B_pool_*.txt")))
-    if not fs: sys.exit("找不到 models/lgbm_B_pool_*.txt，先跑 07_train.py B pool")
+def latest_model(variant="base"):
+    tag = "B" if variant == "base" else "Bseq"
+    fs = sorted(glob.glob(str(ROOT/f"models/lgbm_{tag}_pool_*.txt")))
+    if not fs: sys.exit(f"找不到 models/lgbm_{tag}_pool_*.txt" + ("，先跑 07_train.py B pool" if variant == "base" else "，先跑 22_train_seq_model.py"))
     return fs[-1]
 
 def main():
@@ -76,6 +77,7 @@ def main():
     ap.add_argument("--max-per-stock", type=float, default=600_000); ap.add_argument("--max-price", type=float, default=MAX_PRICE)
     ap.add_argument("--max-n", type=int, default=10); ap.add_argument("--min-amount", type=float, default=100_000, help="單檔金額低於此不做 (避免零頭部位)")
     ap.add_argument("--no-daytrade-filter", action="store_true", help="不過濾現股當沖先賣後買資格 (對照用)")
+    ap.add_argument("--variant", default="base", choices=["base","seq"], help="seq = 影子模型 (基準+K線序列特徵, models/lgbm_Bseq_pool_*), 輸出檔名加 _seq")
     a = ap.parse_args()
     if a.refresh: refresh_d1(a.months)
 
@@ -102,6 +104,7 @@ def main():
             op = pd.read_csv(a.open_csv, dtype={"stock_id":str}); source = a.open_csv
         else:
             print(f"向證交所抓 {len(need)} 檔開盤價 ..."); op = fetch_twse_opens(need.stock_id.tolist(), need.market_type.tolist()); source = "TWSE MIS"
+            (ROOT/"signals").mkdir(exist_ok=True); op.to_csv(ROOT/"signals"/f"{tdate.date()}_opens.csv", index=False)   # 存下來供 --variant seq 用同一份開盤價
             if op.mis_time.notna().any(): print("行情時間:", op.mis_date.dropna().iloc[0], op.mis_time.dropna().iloc[0])
             # 安全檢查: 行情日期必須等於目標日 (收盤後/盤前抓到的是前一交易日資料)
             mis_dates = set(op.mis_date.dropna())
@@ -118,7 +121,10 @@ def main():
         today["volume"] = np.nan
         d1 = pd.concat([d1, today], ignore_index=True)
 
-    f = F.build_B(F.d1_base(d1))
+    base_df = F.d1_base(d1); f = F.build_B(base_df)
+    FEATS = F.D1_FEATS
+    if a.variant == "seq": f = f.merge(F.build_seq(base_df), on=["stock_id","date"], how="left"); FEATS = F.D1_FEATS + F.SEQ_FEATS
+    sfx = "" if a.variant == "base" else "_seq"
     t = f[f.date == tdate].copy()
     if len(t) == 0: sys.exit("目標日沒有任何資料")
     t = t.merge(d1[d1.date == tdate][["stock_id","name"]].drop_duplicates("stock_id"), on="stock_id", how="left")
@@ -128,8 +134,8 @@ def main():
     # ---- 池 + 濾網 ----
     pool = t[F.universe_mask(t) & (t.dv20_prev >= POOL_DV) & (t.atr20 >= POOL_ATR) & t.open.notna()].copy()
     import lightgbm as lgb
-    mpath = latest_model(); model = lgb.Booster(model_file=mpath)
-    pool["pred"] = model.predict(pool[F.D1_FEATS])
+    mpath = latest_model(a.variant); model = lgb.Booster(model_file=mpath)
+    pool["pred"] = model.predict(pool[FEATS])
     pool = pool.sort_values("pred")
     pool["rank_all"] = np.arange(1, len(pool)+1)
     pool["flag"] = ""
@@ -150,7 +156,7 @@ def main():
     pool.loc[pool.open > a.max_price, "flag"] += f"股價>{a.max_price:.0f} "
     elig = pool[pool.flag == ""].copy()
 
-    header = [f"日期 {tdate.date()}  開盤價來源: {source}  模型: {Path(mpath).name}",
+    header = [f"日期 {tdate.date()}  開盤價來源: {source}  模型: {Path(mpath).name}" + ("  [影子模型 seq]" if a.variant == "seq" else ""),
               f"池 {len(pool)} 檔 (dv20≥5億, ATR20≥3%)；大盤平均跳空 {mkt_gap*100:+.2f}%；上漲比例 {t[t.dv20>=1e8].gap.gt(0).mean()*100:.0f}%"]
     if dt_note: header.append(dt_note)
     no_trade = []
@@ -183,12 +189,12 @@ def main():
     lines.append("\n出場規則: 13:30 收盤競價回補；盤中成交價 ≥ 強制回補價 立即市價回補；無其他停利停損。")
     txt = "\n".join(lines); print(txt)
     sig = ROOT/"signals"; sig.mkdir(exist_ok=True)
-    out.to_csv(sig/f"{tdate.date()}.csv", index=False, encoding="utf-8-sig")
-    pool.assign(elig=pool.flag=="")[["stock_id","name","prev_close","open","gap","atr20","dv20_prev","pred","rank_all","flag","elig"]].to_csv(sig/f"{tdate.date()}_pool.csv", index=False, encoding="utf-8-sig")
-    (sig/f"{tdate.date()}.txt").write_text(txt)
-    json.dump({"date": str(tdate.date()), "no_trade": no_trade, "mkt_gap": float(mkt_gap), "n_picks": len(out), "source": source, "model": Path(mpath).name, "daytrade_filter": dt_note},
-              open(sig/f"{tdate.date()}_meta.json","w"), ensure_ascii=False)
-    print(f"\n已寫入 signals/{tdate.date()}.csv / .txt / _pool.csv")
+    out.to_csv(sig/f"{tdate.date()}{sfx}.csv", index=False, encoding="utf-8-sig")
+    pool.assign(elig=pool.flag=="")[["stock_id","name","prev_close","open","gap","atr20","dv20_prev","pred","rank_all","flag","elig"]].to_csv(sig/f"{tdate.date()}{sfx}_pool.csv", index=False, encoding="utf-8-sig")
+    (sig/f"{tdate.date()}{sfx}.txt").write_text(txt)
+    json.dump({"date": str(tdate.date()), "no_trade": no_trade, "mkt_gap": float(mkt_gap), "n_picks": len(out), "source": source, "model": Path(mpath).name, "daytrade_filter": dt_note, "variant": a.variant},
+              open(sig/f"{tdate.date()}{sfx}_meta.json","w"), ensure_ascii=False)
+    print(f"\n已寫入 signals/{tdate.date()}{sfx}.csv / .txt / _pool.csv")
 
 if __name__ == "__main__":
     main()

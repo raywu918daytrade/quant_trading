@@ -270,3 +270,10 @@ D1 抓到 2018 (2018~2019 只當訓練)、M1 抓到 2020，池版模型 B 按季
 - 選股規則比較 (`scripts/20_selection_variants.py` → `stats/selection_variants.md`, 2020~2026 M1 精確): 純模型 / 純 ATR / 純 vol60 / 混合 / ATR 前 20~30 內用模型 / 模型前 30 內用 ATR。每筆淨 0.49~0.57% 全部接近且全為正；但**純模型的 Sharpe 最高 (3.67 vs 2.8~3.5)、MDD 最小 (−15.6% vs −18~−28%)、最差月最小 (−5.1% vs −6.6~−11.3%)、負月比例最低 (10% vs 12~23%)**。模型的價值不在每筆多賺，在於挑出來的組合波動與回撤小。**結論: 維持純模型，不改。**
 - 模型 × ATR 交集 (`stats/selection_overlap.md`): 每天模型前 10 與 ATR 前 10 只重疊 3.1 檔 (31%)；交集每筆淨 0.67%、只有模型 0.46%、只有 ATR 0.41%，七年中六年交集最好。但交集每天只有 3 檔填不滿 300 萬 (使用率 59%, 日淨反而低)；把交集股加碼 (90~150 萬/檔) 年化多 5~14%，代價是 MDD 從 −15.6% 惡化到 −20~−26%、Sharpe 由 4.2 降到 3.7。**結論: 維持純模型等權 (每檔 60 萬)，不加碼交集。**
 - K 線序列特徵對照 (`scripts/21_kline_seq_test.py` → `stats/kline_seq_test.md`): 基準 33 特徵 vs 加 45 個最近 10 天 K 棒序列特徵，2020Q1~2026Q4 同 pipeline 各訓 28 季。序列版每筆淨 0.52→0.59%，七年每一年每筆都較高；日淨 0.47→0.52%，Sharpe 3.44→4.00；但 MDD −13.9%→−18.1%，每日 IC 差 t-stat 僅 1.54。序列特徵 gain 占 46% (上下影線、各日跳空最重要)。尚未採用，待決定。
+
+## 影子模型 (2026-10-23) — K 線序列模型與正式模型並行比較
+- 模型: `scripts/22_train_seq_model.py [季]` 訓練 `models/lgbm_Bseq_pool_<季>.txt` (基準 33 + `features.SEQ_FEATS` 45 個, D1 從 2018 起)。每季初與正式模型一起重訓。
+- 名單: `daily_candidates.py --variant seq` 用同一份開盤價 (`signals/<date>_opens.csv`) 產生 `signals/<date>_seq.*`；`publish_signals.py` 一併上傳成 `db/signals/<date>_seq.json` 與 `latest_seq.json`。workflow `daily_signals.yml` 已加這一步。
+- 模擬: `paper_trade.yml` 矩陣 `[base, seq]` 兩台 runner 各跑一個變體；`paper_trade.py --variant seq` 帳本在 `paper_seq/` → HF `db/paper_seq/`。兩者共用同一個永豐模擬帳戶，委託帶 `custom_field` 標記，回報只認自己變體的。
+- 手機頁頂部三段切換: 正式模型 / 影子 / 對照 (兩邊名單並排、兩邊都選到加粗、各自模擬累積報酬與日勝率)。正式那條完全不受影響。
+- 決策: 跑一個月後看對照頁的累積與勝率，影子持續領先才升為正式 (把 `latest_model` 的預設改成 Bseq 並更新 README 規格)。

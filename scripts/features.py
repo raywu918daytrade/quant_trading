@@ -75,3 +75,17 @@ def round_up_tick(p):
     t = tick_size(p); return np.ceil(p/t-1e-9)*t
 def limit_up(prev_close):
     return round_down_tick(prev_close*1.10)
+
+# ---- K 線序列特徵 (影子模型 Bseq 用; 2026-10-23 實驗 stats/kline_seq_test.md) ----
+SEQ_FEATS = [f"k{k}_{n}" for k in range(1, 11) for n in (["ret","vr"] + (["intra","rng","uw","lw","gap"] if k <= 5 else []))]
+
+def build_seq(d1f: pd.DataFrame) -> pd.DataFrame:
+    """輸入 d1_base() 的輸出. 回傳 stock_id,date + SEQ_FEATS: 最近 10 天每天的 ret/量比, 最近 5 天的 開到收/振幅/上影/下影/跳空 (全部 shift>=1)."""
+    b = d1f.sort_values(["stock_id","date"]).reset_index(drop=True)
+    out = b[["stock_id","date"]].copy()
+    uw = (b.high - b[["open","close"]].max(axis=1)) / b.prev_close
+    lw = (b[["open","close"]].min(axis=1) - b.low) / b.prev_close
+    src = {"ret": b.ret, "vr": b.vol_ratio, "intra": b.intra, "rng": b.range, "uw": uw, "lw": lw, "gap": b.gap}
+    for col in SEQ_FEATS:
+        k, n = col[1:].split("_", 1); out[col] = src[n].groupby(b.stock_id, sort=False).shift(int(k)).values
+    return out

@@ -26,6 +26,7 @@ th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:right;white
 td:first-child,th:first-child,td:nth-child(2),th:nth-child(2){text-align:left}
 .muted{color:var(--muted);font-size:12px}button{background:var(--accent);color:#fff;border:0;border-radius:8px;padding:7px 12px;font-weight:600;font-size:14px}
 input[type=date]{background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:14px}
+.seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;margin-bottom:10px}.seg button{flex:1;background:transparent;color:var(--muted);border:0;border-radius:0;padding:7px 4px;font-size:13px}.seg button.on{background:color-mix(in srgb,var(--accent) 18%,transparent);color:var(--accent)}
 .datebar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}.datebar .sec{background:transparent;color:var(--accent);border:1px solid var(--accent)}.datebar .muted{flex-basis:100%}
 h2{font-size:15px;margin:18px 0 8px}footer{color:var(--muted);font-size:12px;padding:16px;text-align:center;line-height:1.7}
 details summary{cursor:pointer;color:var(--accent);font-size:14px}
@@ -33,6 +34,12 @@ details summary{cursor:pointer;color:var(--accent);font-size:14px}
 <header><h1>當沖做空名單</h1><button id="btnReload">重新整理</button></header>
 <main>
   <div class="datebar"><input type="date" id="dateIn"><button id="btnDate">載入</button><button id="btnLatest" class="sec">回最新</button><span id="status" class="muted"></span></div>
+  <div class="seg" id="seg"><button data-v="base" class="on">正式模型</button><button data-v="seq">影子：K 線序列</button><button data-v="cmp">對照</button></div>
+  <div id="cmpBox" style="display:none">
+    <div class="cards" id="cmpCards"></div>
+    <div class="wrap"><table><thead><tr><th>正式</th><th>影子</th></tr></thead><tbody id="cmpBody"></tbody></table></div>
+    <p class="muted" style="margin:6px 0 12px">粗體 = 兩邊都選到。累積 = 模擬下單結算的日淨報酬 (對 300 萬) 相加，只算有紀錄的日子。</p>
+  </div>
   <div id="banner" class="banner wait">載入中…</div>
   <div class="cards">
     <div class="card"><div class="k">名單日期</div><div class="v" id="cDate">–</div></div>
@@ -61,6 +68,9 @@ details summary{cursor:pointer;color:var(--accent);font-size:14px}
 <footer>資料來源: HF dataset raywu918daytrade/daytrade · db/signals · 由 GitHub Actions 每個平日 09:01 自動產生</footer>
 <script>
 const BASE = "https://huggingface.co/datasets/raywu918daytrade/daytrade/resolve/main/db/signals/";
+let VARIANT = "base";   // base | seq | cmp
+const sigName = (date, v) => (date ? `${date}${v==="seq"?"_seq":""}.json` : (v==="seq" ? "latest_seq.json" : "latest.json"));
+const paperBase = v => "https://huggingface.co/datasets/raywu918daytrade/daytrade/resolve/main/db/" + (v==="seq" ? "paper_seq" : "paper") + "/";
 const qs = new URLSearchParams(location.search);
 const SRC = qs.get("src");               // 測試用: ?src=本機 json 網址
 const fmt = (x, d=2) => (x==null||isNaN(x)) ? "–" : Number(x).toLocaleString("zh-TW",{minimumFractionDigits:d,maximumFractionDigits:d});
@@ -70,7 +80,8 @@ const dowName = d => "日一二三四五六"[new Date(d+"T00:00:00").getDay()];
 function pctCls(v){ return v>0 ? "pos" : v<0 ? "neg" : ""; }
 
 async function load(date){
-  const url = SRC ? SRC : BASE + (date ? `${date}.json` : "latest.json") + "?t=" + Date.now();
+  const v = VARIANT === "cmp" ? "base" : VARIANT;
+  const url = SRC ? SRC : BASE + sigName(date, v) + "?t=" + Date.now();
   $("banner").className="banner wait"; $("banner").textContent="載入中…"; $("status").textContent = "載入中…";
   let j;
   try{
@@ -86,7 +97,7 @@ async function load(date){
 function render(j){
   const noTrade = (j.no_trade||[]).length>0;
   $("banner").className = "banner " + (noTrade ? "stop" : "go");
-  $("banner").textContent = noTrade ? ("今日不交易: " + j.no_trade.join("；") + " (名單僅供參考)") : `可交易 · ${j.date} (週${dowName(j.date)})`;
+  $("banner").textContent = (VARIANT==="seq" ? "[影子] " : "") + (noTrade ? ("今日不交易: " + j.no_trade.join("；") + " (名單僅供參考)") : `可交易 · ${j.date} (週${dowName(j.date)})`);
   $("cDate").textContent = j.date + " 週" + dowName(j.date);
   const mg = j.mkt_gap==null ? null : j.mkt_gap*100;
   $("cMkt").textContent = mg==null ? "–" : (mg>0?"+":"") + fmt(mg) + "%"; $("cMkt").className = "v " + pctCls(mg);
@@ -112,8 +123,8 @@ function render(j){
   loadPaper(j.date);
 }
 
-const PAPER = "https://huggingface.co/datasets/raywu918daytrade/daytrade/resolve/main/db/paper/";
 async function loadLive(date){
+  const PAPER = paperBase(VARIANT === "cmp" ? "base" : VARIANT);
   try{
     const r = await fetch(PAPER + "live.json?t=" + Date.now(), {cache:"no-store"}); if(!r.ok) throw 0;
     const L = await r.json();
@@ -127,7 +138,8 @@ async function loadLive(date){
   }catch(e){ $("liveBox").style.display = "none"; }
 }
 async function loadPaper(date){
-  loadLive(date);
+  const PAPER = paperBase(VARIANT === "cmp" ? "base" : VARIANT);
+  loadLive(date); if(VARIANT === "cmp") loadCompare(date);
   try{
     const r = await fetch(PAPER + (date ? `${date}_summary.json` : "latest.json") + "?t=" + Date.now(), {cache:"no-store"});
     if(!r.ok) throw 0;
@@ -150,6 +162,24 @@ async function loadPaper(date){
     }catch(e){ $("paperDetails").style.display = "none"; }
   }catch(e){ $("paperDate").textContent = ""; $("paperCards").innerHTML = `<div class="card" style="grid-column:1/-1"><div class="k">尚無模擬紀錄</div></div>`; $("paperDetails").style.display = "none"; }
 }
+async function fetchJ(u){ const r = await fetch(u + "?t=" + Date.now(), {cache:"no-store"}); if(!r.ok) throw 0; return r.json(); }
+async function fetchCsv(u){ const r = await fetch(u + "?t=" + Date.now(), {cache:"no-store"}); if(!r.ok) return []; const [h, ...ls] = (await r.text()).trim().split(/\r?\n/); const H = h.split(","); return ls.filter(Boolean).map(l => { const c = l.split(","); const o = {}; H.forEach((k,i)=>o[k]=c[i]); return o; }); }
+async function loadCompare(date){
+  try{
+    const [a, b] = await Promise.all([fetchJ(BASE + sigName(date, "base")).catch(()=>null), fetchJ(BASE + sigName(date, "seq")).catch(()=>null)]);
+    const [sa, sb] = await Promise.all([fetchCsv(paperBase("base") + "summary.csv"), fetchCsv(paperBase("seq") + "summary.csv")]);
+    const cum = rows => { const r = rows.filter(x => x.sim_pnl_net !== "" && x.sim_pnl_net != null); const pct = r.reduce((t,x) => t + (+x.sim_pnl_net || 0), 0) / 3000000 * 100; const wins = r.filter(x => +x.sim_pnl_net > 0).length; return {n: r.length, pct, win: r.length ? wins/r.length : null}; };
+    const ca = cum(sa), cb = cum(sb); const pct = v => (v>0?"+":"") + fmt(v) + "%";
+    $("cmpCards").innerHTML = [["正式 · 模擬累積", ca, "base"], ["影子 · 模擬累積", cb, "seq"]].map(([k, c]) => `<div class="card"><div class="k">${k}</div><div class="v ${c.n ? pctCls(c.pct) : ""}" style="font-size:19px">${c.n ? pct(c.pct) : "尚無"}</div><div class="k">${c.n ? c.n + " 天 · 日勝率 " + Math.round(c.win*100) + "%" : "等結算後出現"}</div></div>`).join("");
+    const pa = (a && a.picks) || [], pb = (b && b.picks) || []; const ia = new Set(pa.map(p=>p.stock_id)), ib = new Set(pb.map(p=>p.stock_id));
+    const n = Math.max(pa.length, pb.length); let rows = [];
+    for(let i=0;i<n;i++){ const x = pa[i], y = pb[i]; rows.push(`<tr><td style="${x && ib.has(x.stock_id) ? "font-weight:700" : ""}">${x ? x.stock_id + " " + (x.name||"") : ""}</td><td style="${y && ia.has(y.stock_id) ? "font-weight:700" : ""}">${y ? y.stock_id + " " + (y.name||"") : ""}</td></tr>`); }
+    $("cmpBody").innerHTML = rows.join("") || `<tr><td colspan="2" class="muted">尚無影子名單</td></tr>`;
+    $("cmpBox").style.display = "";
+  }catch(e){ $("cmpBox").style.display = "none"; }
+}
+document.querySelectorAll("#seg button").forEach(b => b.onclick = () => { VARIANT = b.dataset.v; document.querySelectorAll("#seg button").forEach(x => x.classList.toggle("on", x === b)); $("cmpBox").style.display = "none"; try{ localStorage.setItem("variant", VARIANT); }catch(e){} load($("dateIn").value && $("dateIn").value !== lastLatest ? $("dateIn").value : null); });
+try{ const v = localStorage.getItem("variant"); if(v && ["base","seq","cmp"].includes(v)){ VARIANT = v; document.querySelectorAll("#seg button").forEach(x => x.classList.toggle("on", x.dataset.v === v)); } }catch(e){}
 $("btnReload").onclick = () => load($("dateIn").value && $("dateIn").value !== lastLatest ? $("dateIn").value : null);
 $("btnDate").onclick = () => load($("dateIn").value || null);
 $("btnLatest").onclick = () => load(null);
