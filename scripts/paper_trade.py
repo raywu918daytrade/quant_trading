@@ -31,7 +31,9 @@ SIGNALS_URL = f"https://huggingface.co/datasets/{REPO}/resolve/main/db/signals/l
 COST_RT = 0.0023          # 來回成本 (券賣手續費+稅+買回手續費), 與回測相同
 ENTRY_T = (9, 1, 0)       # 進場時間
 VWAP_WIN = ((9, 1, 0), (9, 3, 0))   # 真實 tick 基準: 09:01~09:03 VWAP
-EXIT_T = (13, 26, 0)      # 收盤前市價回補 (參與 13:30 收盤競價)
+PRE_AUCTION_T = (13, 24, 0)   # 逐筆撮合最後一分鐘: 現價 >= 昨收*(1+PRE_AUCTION_K) 的先市價買回 (13:25~13:30 沒有 tick, +8% 規則失效)
+PRE_AUCTION_K = 0.06
+EXIT_T = (13, 26, 0)      # 其餘部位市價回補 (參與 13:30 收盤競價)
 END_T = (13, 35, 0)
 LATE_ABORT_T = (9, 4, 0)
 LIVE_EVERY = 300          # 盤中每 5 分鐘寫一次 live.json (持倉與未實現損益) 到 HF  # 超過這時間還沒進場 (例如備援排程太晚啟動) 就放棄, 不在盤中亂下單
@@ -208,7 +210,7 @@ class Paper:
                 elif (code, "Sell") not in self.orders: st = "未進場"
                 elif not sell_px: st = "券賣未成交"
                 elif p.get("_exit_reason") == "no_fill": st = "券賣未成交"
-                elif buy_px: st = "已強制回補" if p.get("_exit_reason") == "forced" else "已收盤回補"
+                elif buy_px: st = {"forced": "已強制回補", "pre_auction": "已尾盤回補"}.get(p.get("_exit_reason"), "已收盤回補")
                 elif code in self.covered: st = "回補中"
                 else: st = "持有中"
                 ref = buy_px or last
@@ -361,9 +363,19 @@ def main():
     pt.enter()
     time.sleep(5); pt.refresh_deals_from_status(); snap = pt.push_live("running")
     log(f"進場完成 (持有 {snap['n_open']} 檔), 盯盤到 13:26, 每 {LIVE_EVERY//60} 分鐘更新 live.json ...")
-    t_exit = at(*EXIT_T); last_hb = now()
+    t_exit = at(*EXIT_T); t_pre = at(*PRE_AUCTION_T); last_hb = now(); pre_done = False
     while now() < t_exit:
         time.sleep(1)
+        if not pre_done and now() >= t_pre:
+            pre_done = True; pt.refresh_deals_from_status(); n = 0
+            for p in picks:
+                code = p["stock_id"]
+                if code in pt.covered or (code, "Sell") not in pt.orders or not pt.ticks[code]: continue
+                last = pt.ticks[code][-1][1]; thr = float(p["prev_close"]) * (1 + PRE_AUCTION_K)
+                if last >= thr:
+                    log(f"13:24 預先回補 {code} {p.get('name','')}: 現價 {last} >= 昨收+{PRE_AUCTION_K*100:.0f}% ({thr:.2f})，不等收盤競價"); pt.cover(code, "pre_auction"); n += 1
+            if n: pt.push_live("running")
+            log(f"13:24 檢查完成, 預先回補 {n} 檔")
         if (now() - last_hb).total_seconds() >= LIVE_EVERY:
             last_hb = now(); pt.refresh_deals_from_status(); snap = pt.push_live("running")
             log("心跳", f"持有 {snap['n_open']} 檔 未實現 {snap['pnl_pct']}% ({snap['pnl_gross']:,} 元)", " ".join(f"{r['stock_id']}:{r['status']}@{r['last']}" for r in snap["positions"]))

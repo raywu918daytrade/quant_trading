@@ -239,6 +239,7 @@ GitHub Actions (平日 UTC 01:01 = 台灣 09:01, .github/workflows/daily_signals
 - 08:50 cron-job.org 打 `workflow_dispatch` 啟動 GitHub Actions (沒有 GitHub 自己的排程；超過 09:04 才進場會自動放棄) → 等 HF `db/signals/latest.json` 變成今天 (最晚 09:10) → 模擬登入 → 檢查每檔 `contract.day_trade == Yes` (不可現沖券賣的直接略過並記錄)。
 - 09:01:00 每檔市價「現股當沖先賣」(`daytrade_short=True`)，同時訂閱 tick。
 - 盤中任一 tick ≥ 強制回補價 (昨收 +8%) → 立即市價買回 (`exit_reason=forced`)。
+- 13:24 (逐筆撮合最後一分鐘) 現價 ≥ 昨收 +6% 的先市價買回 (`exit_reason=pre_auction`)，因為 13:25~13:30 沒有成交、+8% 規則在那五分鐘失效，避免收盤競價跳到漲停鎖死；門檻在 `PRE_AUCTION_K`，未回測，只影響尾盤漲 6% 以上的少數交易。
 - 13:26 剩餘部位市價買回 (參與 13:30 收盤競價)；13:35 結算。
 - 每檔同時記兩組數字: **模擬成交價** (券賣/買回) 與 **真實 tick** 算的 09:01~09:03 VWAP 與最後成交價 (回測的假設)。兩者差距就是模擬撮合的偏差；前幾天先看 `sim_net_pct` 與 `tick_net_pct` 是否接近，再決定信哪個。
 - 輸出 `paper/<date>_trades.csv`、`<date>_summary.json`，`--publish` 上傳 HF `db/paper/` 並累計 `db/paper/summary.csv`；手機頁「模擬下單」區直接顯示。

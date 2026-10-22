@@ -144,7 +144,7 @@ async function loadPaper(date){
       const [head, ...lines] = txt.trim().split(/\r?\n/); const H = head.split(",");
       const rows = lines.filter(Boolean).map(l => { const cells = l.split(","); const o = {}; H.forEach((h,i)=>o[h]=cells[i]); return o; });
       if(rows.length && rows[0].stock_id){
-        $("paperBody").innerHTML = rows.map(r => `<tr><td>${r.stock_id}</td><td>${r.name||""}</td><td>${r.sim_sell_px||"–"}</td><td>${r.sim_buy_px||"–"}</td><td>${r.exit_reason==="forced"?"強制":r.exit_reason==="close"?"收盤":"–"}</td><td class="${(+r.sim_net_pct)>0?"pos":"neg"}">${r.sim_net_pct||"–"}</td><td>${r.tick_net_pct||"–"}</td></tr>`).join("");
+        $("paperBody").innerHTML = rows.map(r => `<tr><td>${r.stock_id}</td><td>${r.name||""}</td><td>${r.sim_sell_px||"–"}</td><td>${r.sim_buy_px||"–"}</td><td>${r.exit_reason==="forced"?"強制":r.exit_reason==="pre_auction"?"尾盤":r.exit_reason==="close"?"收盤":"–"}</td><td class="${(+r.sim_net_pct)>0?"pos":"neg"}">${r.sim_net_pct||"–"}</td><td>${r.tick_net_pct||"–"}</td></tr>`).join("");
         $("paperDetails").style.display = "";
       } else $("paperDetails").style.display = "none";
     }catch(e){ $("paperDetails").style.display = "none"; }
