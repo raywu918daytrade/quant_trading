@@ -285,3 +285,7 @@ D1 抓到 2018 (2018~2019 只當訓練)、M1 抓到 2020，池版模型 B 按季
 
 ## 交易紀錄 (每日自動, 2026-10-23) — `scripts/record_results.py` → HF `db/signals/history.csv` / `history_daily.csv` (影子 `history_base.csv`)
 每天 09:01 名單 workflow 在 D1 更新、名單發布後執行: 把「已發布但還沒結算」的日子用 D1 逐檔結算 (進場開盤 +0.03%、high ≥ 昨收×1.08 → 強制價、否則收盤價；收盤鎖漲停 → 隔日開盤 −7%；成本 0.23%)，每檔一列追加到 `history.csv`、每天一行到 `history_daily.csv`。只記當天真的發布過的名單，換模型也接續記錄 (每行有 `model` 欄位可區分)，純追加、沒有刪除功能。手機頁「交易紀錄」區顯示累積損益、每日列表、點開看各檔；正式與影子各自一份。
+
+## 手機頁「補跑這天」代理 (2026-10-23) — `trigger/app.py` + `render.yaml` (Render 免費方案)
+HF 動態 Space 在此帳號要付費，改用 Render。一次設定: Render Dashboard → New → Blueprint → 選這個 repo (會讀 `render.yaml`，服務名 `quant-trigger`) → Environment 填 `GH_TOKEN` (GitHub fine-grained token，只給 quant_trading 的 Actions: Read and write；可直接用 cron-job 那把) 與 `API_PIN` (自訂)。
+網頁: 選日期 → 「補跑這天」→ 第一次輸入 PIN (存在手機瀏覽器) → 代理打 GitHub `workflow_dispatch` (daily_signals.yml, inputs.date)。代理 60 秒內同一 workflow 只觸發一次；CORS 只允許 quant.just1stock.com。免費方案閒置會休眠，第一次喚醒約 30~50 秒。`GET /runs` 可看最近執行。

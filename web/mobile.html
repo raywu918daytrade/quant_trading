@@ -33,7 +33,7 @@ details summary{cursor:pointer;color:var(--accent);font-size:14px}
 </style></head><body>
 <header><h1>當沖做空名單</h1><button id="btnReload">重新整理</button></header>
 <main>
-  <div class="datebar"><input type="date" id="dateIn"><button id="btnDate">載入</button><button id="btnLatest" class="sec">回最新</button><a class="sec" style="display:inline-block;padding:7px 10px;border:1px solid var(--accent);border-radius:8px;color:var(--accent);text-decoration:none;font-size:13px" href="https://github.com/raywu918daytrade/quant_trading/actions/workflows/daily_signals.yml" target="_blank" rel="noopener">補跑某天 ↗</a><span id="status" class="muted"></span></div>
+  <div class="datebar"><input type="date" id="dateIn"><button id="btnDate">載入</button><button id="btnLatest" class="sec">回最新</button><button id="btnReplay" class="sec">補跑這天</button><span id="status" class="muted"></span></div>
   <div class="seg" id="seg"><button data-v="main" class="on">正式：支撐壓力</button><button data-v="base">影子：基準</button><button data-v="cmp">對照</button></div>
   <div id="cmpBox" style="display:none">
     <div class="cards" id="cmpCards"></div>
@@ -63,7 +63,7 @@ details summary{cursor:pointer;color:var(--accent);font-size:14px}
   <div class="cards" id="histCards"><div class="card" style="grid-column:1/-1"><div class="k">尚無紀錄</div></div></div>
   <div class="wrap"><table><thead><tr><th>日期</th><th>檔</th><th>勝</th><th>損益元</th><th>%</th></tr></thead><tbody id="histBody"></tbody></table></div>
   <div id="histDetail" style="display:none;margin-top:8px"><div class="muted" id="histDetailTitle" style="margin-bottom:4px"></div><div class="wrap"><table><thead><tr><th>代號</th><th>名稱</th><th>張</th><th>進場</th><th>出場</th><th>方式</th><th>淨%</th><th>損益</th></tr></thead><tbody id="histDetailBody"></tbody></table></div></div>
-  <p class="muted" style="margin-top:6px">依當天發布的名單用日線結算 (進場開盤價、觸 +8% 以強制價出、否則收盤價、成本 0.23%)，每天 09:01 自動追加，換模型也接續記錄 (model 欄位可區分)。補跑某天: 開 Actions → Run workflow → 填 date。</p>
+  <p class="muted" style="margin-top:6px">依當天發布的名單用日線結算 (進場開盤價、觸 +8% 以強制價出、否則收盤價、成本 0.23%)，每天 09:01 自動追加，換模型也接續記錄 (model 欄位可區分)。補跑某天: 選日期 → 按「補跑這天」(需 PIN)，由 Render 代理觸發 GitHub。</p>
   <details style="margin-top:14px"><summary>表格檢視</summary>
     <div class="wrap"><table><thead><tr><th>代號</th><th>名稱</th><th>開盤</th><th>張數</th><th>金額</th><th>強制回補</th><th>漲停</th></tr></thead><tbody id="tbody"></tbody></table></div>
   </details>
@@ -209,6 +209,20 @@ function showHistDay(d){
   $("histDetailBody").innerHTML = rows.map(r => `<tr><td>${r.stock_id}</td><td>${r.name||""}</td><td>${r.lots}</td><td>${fmt(+r.entry)}</td><td>${fmt(+r.exit)}</td><td>${({forced:"強制",close:"收盤",lock:"鎖漲停",lock_pending:"鎖漲停*"})[r.exit_reason]||r.exit_reason}</td><td class="${pctCls(+r.net_pct)}">${(+r.net_pct>0?"+":"")+fmt(+r.net_pct)}</td><td class="${pctCls(+r.pnl)}">${money(+r.pnl)}</td></tr>`).join("");
   $("histDetail").style.display = "";
 }
+const TRIGGER_URL = "https://quant-trigger.onrender.com";   // Render 上的代理 (trigger/app.py); 服務名稱要叫 quant-trigger
+$("btnReplay").onclick = async () => {
+  const d = $("dateIn").value; if(!d){ $("status").textContent = "先選日期"; return; }
+  let pin = null; try{ pin = localStorage.getItem("trigger_pin"); }catch(e){}
+  if(!pin){ pin = prompt("輸入補跑 PIN (只問一次)"); if(!pin) return; try{ localStorage.setItem("trigger_pin", pin); }catch(e){} }
+  $("status").textContent = `觸發 ${d} 補跑中… (Render 休眠時第一次要等 30~50 秒)`;
+  try{
+    const r = await fetch(TRIGGER_URL + "/replay", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({pin, date: d, workflow: "signals"})});
+    const j = await r.json().catch(()=>({}));
+    if(r.status === 401){ try{ localStorage.removeItem("trigger_pin"); }catch(e){} $("status").textContent = "✗ PIN 錯誤，再按一次重新輸入"; return; }
+    if(!r.ok){ $("status").textContent = "✗ " + (j.detail || ("HTTP " + r.status)); return; }
+    $("status").innerHTML = `✓ 已觸發 ${d} 的名單補跑，約 2 分鐘後按「載入」。<a href="${j.runs_url}" target="_blank" rel="noopener" style="color:var(--accent)">看執行進度 ↗</a>`;
+  }catch(e){ $("status").textContent = "✗ 連不到代理 (Render 未部署或休眠中)，稍後再試"; }
+};
 $("btnReload").onclick = () => load($("dateIn").value && $("dateIn").value !== lastLatest ? $("dateIn").value : null);
 $("btnDate").onclick = () => load($("dateIn").value || null);
 $("btnLatest").onclick = () => load(null);
