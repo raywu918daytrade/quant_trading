@@ -288,4 +288,4 @@ D1 抓到 2018 (2018~2019 只當訓練)、M1 抓到 2020，池版模型 B 按季
 
 ## 手機頁「補跑這天」代理 (2026-10-23) — `trigger/worker.js` (Cloudflare Workers, 免費、不休眠)
 一次設定: Cloudflare Dashboard → Workers & Pages → Create → Hello World → 名稱 `quant-trigger` → Edit code → 貼 `trigger/worker.js` → Deploy → Settings → Variables and Secrets 加 `GH_TOKEN` (GitHub fine-grained token，只給 quant_trading 的 Actions: Read and write，設 Secret) 與 `API_PIN` (自訂)。網址形如 `https://quant-trigger.<子網域>.workers.dev`。
-網頁: 選日期按「載入」，平日沒有名單時自動補跑 (第一次問 PIN) 並每 20 秒輪詢；每個日期只自動補跑一次 (之後重整只給手動連結)；5 分鐘內或 GitHub 執行中不重複觸發，週末/未來日期只顯示沒名單 (都記在手機瀏覽器；也可用 `?trigger=網址` 設定)。代理只接受 quant.just1stock.com 的呼叫、60 秒內同一 workflow 只觸發一次、date 格式驗證。`GET /runs` 看最近執行。也可用 `wrangler` CLI 部署 (`trigger/wrangler.toml`)。
+網頁: 選日期按「載入」，平日沒有名單時自動補跑「該月整月」(一次補齊缺的日子, 已發布的跳過; 第一次問 PIN) 並每 10 秒輪詢；每個日期只自動補跑一次；5 分鐘內或 GitHub 執行中不重複觸發，週末/未來日期只顯示沒名單。workflow 的 `date` 可填 YYYY-MM-DD / YYYY-MM / A..B；多日回放特徵只算一次 (10 月 5 天實測 85 秒)。
