@@ -63,7 +63,7 @@ details summary{cursor:pointer;color:var(--accent);font-size:14px}
   <div class="cards" id="histCards"><div class="card" style="grid-column:1/-1"><div class="k">尚無紀錄</div></div></div>
   <div class="wrap"><table><thead><tr><th>日期</th><th>檔</th><th>勝</th><th>損益元</th><th>%</th></tr></thead><tbody id="histBody"></tbody></table></div>
   <div id="histDetail" style="display:none;margin-top:8px"><div class="muted" id="histDetailTitle" style="margin-bottom:4px"></div><div class="wrap"><table><thead><tr><th>代號</th><th>名稱</th><th>張</th><th>進場</th><th>出場</th><th>方式</th><th>淨%</th><th>損益</th></tr></thead><tbody id="histDetailBody"></tbody></table></div></div>
-  <p class="muted" style="margin-top:6px">依當天發布的名單用日線結算 (進場開盤價、觸 +8% 以強制價出、否則收盤價、成本 0.23%)，每天 09:01 自動追加，換模型也接續記錄 (model 欄位可區分)。補跑: 選日期按「載入」，平日且非未來日期沒有名單時自動觸發補跑 (需 PIN，問一次)，每 20 秒自動檢查、出來直接顯示；5 分鐘內或 GitHub 執行中不會重複觸發。</p>
+  <p class="muted" style="margin-top:6px">依當天發布的名單用日線結算 (進場開盤價、觸 +8% 以強制價出、否則收盤價、成本 0.23%)，每天 09:01 自動追加，換模型也接續記錄 (model 欄位可區分)。補跑: 選日期按「載入」，平日且非未來日期沒有名單時自動觸發補跑 (需 PIN，問一次)，每 10 秒自動檢查、出來直接顯示；5 分鐘內或 GitHub 執行中不會重複觸發。</p>
   <details style="margin-top:14px"><summary>表格檢視</summary>
     <div class="wrap"><table><thead><tr><th>代號</th><th>名稱</th><th>開盤</th><th>張數</th><th>金額</th><th>強制回補</th><th>漲停</th></tr></thead><tbody id="tbody"></tbody></table></div>
   </details>
@@ -231,7 +231,7 @@ async function autoReplayInner(d){
   let running = false;
   try{ const r = await fetch(TRIGGER_URL + "/runs?n=3", {cache:"no-store"}); if(r.ok){ const runs = await r.json(); running = runs.some(x => x.status === "queued" || x.status === "in_progress"); } }catch(e){}
   if(Date.now() - pend < 5*60*1000 || running){
-    $("status").textContent = `${d} 沒有名單，補跑已在進行中，每 20 秒自動檢查…`; pollFor(d); return;
+    $("status").textContent = `${d} 沒有名單，補跑已在進行中，每 10 秒自動檢查…`; pollFor(d); return;
   }
   $("status").textContent = `${d} 沒有名單，自動補跑中…`;
   const ok = await replay(d);
@@ -241,10 +241,10 @@ function pollFor(d){
   if(pollTimer) clearInterval(pollTimer); let n = 0;
   const check = async () => {
     n++; try{ const r = await fetch(BASE + sigName(d, VARIANT === "cmp" ? "main" : VARIANT) + "?t=" + Date.now(), {cache:"no-store"}); if(r.ok){ clearInterval(pollTimer); pollTimer = null; try{ localStorage.removeItem(pendingKey(d)); }catch(e){} load(d); return; } }catch(e){}
-    if(n >= 12){ clearInterval(pollTimer); pollTimer = null; $("status").innerHTML = `${d} 補跑 4 分鐘仍沒有名單，可能那天不是交易日或執行失敗。<a href="https://github.com/raywu918daytrade/quant_trading/actions/workflows/daily_signals.yml" target="_blank" rel="noopener" style="color:var(--accent)">看 GitHub 執行紀錄 ↗</a>`; }
-    else $("status").textContent = `${d} 補跑中… 已等 ${n*20} 秒 (最多 4 分鐘)`;
+    if(n >= 24){ clearInterval(pollTimer); pollTimer = null; $("status").innerHTML = `${d} 補跑 4 分鐘仍沒有名單，可能那天不是交易日或執行失敗。<a href="https://github.com/raywu918daytrade/quant_trading/actions/workflows/daily_signals.yml" target="_blank" rel="noopener" style="color:var(--accent)">看 GitHub 執行紀錄 ↗</a>`; }
+    else $("status").textContent = `${d} 補跑中… 已等 ${n*10} 秒 (最多 4 分鐘)`;
   };
-  check(); pollTimer = setInterval(check, 20000);
+  check(); pollTimer = setInterval(check, 10000);
 }
 async function replay(d){
   if(!d){ $("status").textContent = "先選日期"; return false; }
@@ -258,7 +258,7 @@ async function replay(d){
     if(r.status === 401){ try{ localStorage.removeItem("trigger_pin"); }catch(e){} $("status").textContent = "✗ PIN 錯誤，再按一次「載入」重新輸入"; return false; }
     if(r.status === 429){ $("status").textContent = "補跑已在進行中 (60 秒內已觸發過)，自動檢查…"; return true; }
     if(!r.ok){ $("status").textContent = "✗ " + (j.detail || ("HTTP " + r.status)); return false; }
-    $("status").innerHTML = `✓ 已觸發 ${d} 的補跑，每 20 秒自動檢查，出來會直接顯示。<a href="${j.runs_url}" target="_blank" rel="noopener" style="color:var(--accent)">看執行進度 ↗</a>`;
+    $("status").innerHTML = `✓ 已觸發 ${d} 的補跑，每 10 秒自動檢查，出來會直接顯示。<a href="${j.runs_url}" target="_blank" rel="noopener" style="color:var(--accent)">看執行進度 ↗</a>`;
     return true;
   }catch(e){ $("status").textContent = "✗ 連不到代理，確認 Worker 網址是否正確 (可用 ?trigger= 重設)"; return false; }
 }
