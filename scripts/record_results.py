@@ -28,7 +28,7 @@ def main():
         if f"db/signals/{name}" not in files: return []
         r = requests.get(BASE_URL + name, params={"t": pd.Timestamp.now().timestamp()}, timeout=30); r.raise_for_status(); return list(csv.DictReader(io.StringIO(r.text)))
     hist = read_csv(hist_name); daily = read_csv(daily_name)
-    # 模型換了 (最新名單的 model != 紀錄最後一行的 model) 或 --reset → 把舊紀錄搬到 archive/, 從零開始
+    # 模型換了只提示, 紀錄照常接續 (每行 model 欄位可區分), 純追加不刪
     latest = requests.get(BASE_URL + f"latest{sfx}.json", params={"t": 1}, timeout=30).json()
     cur_model = latest.get("model", ""); last_model = daily[-1]["model"] if daily else cur_model
     if daily and cur_model and last_model and cur_model != last_model: print(f"[{a.variant}] 注意: 模型已從 {last_model} 換成 {cur_model}，紀錄照常接續 (model 欄位可區分)")
