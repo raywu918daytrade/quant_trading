@@ -122,7 +122,7 @@ function render(j){
   const picks = j.picks || [];
   $("picks").innerHTML = picks.length ? picks.map(p => `
     <div class="pick">
-      <div class="top"><div><span class="id">${p.stock_id}</span><span class="nm">${p.name ?? ""}</span> <a href="https://tw.stock.yahoo.com/quote/${p.stock_id}" target="_blank" rel="noopener" style="color:var(--accent);font-size:12px;margin-left:6px;text-decoration:none">走勢 ↗</a></div><div class="rk">池內排名 ${p.rank} · 分數 ${fmt(p.pred_pct)}%</div></div>
+      <div class="top"><div><span class="id">${p.stock_id}</span><span class="nm">${p.name ?? ""}</span> <a href="#" class="kbtn" data-sid="${p.stock_id}" style="color:var(--accent);font-size:12px;margin-left:6px;text-decoration:none">分K ▾</a> <a href="https://tw.stock.yahoo.com/quote/${p.stock_id}" target="_blank" rel="noopener" style="color:var(--accent);font-size:12px;margin-left:4px;text-decoration:none">走勢 ↗</a></div><div class="rk">池內排名 ${p.rank} · 分數 ${fmt(p.pred_pct)}%</div></div>
       <div class="grid">
         <div><div class="k">開盤</div><div class="v big">${fmt(p.open)}</div></div>
         <div><div class="k">張數</div><div class="v big">${p.lots}</div></div>
@@ -132,7 +132,10 @@ function render(j){
         <div><div class="k">ATR20</div><div class="v">${fmt(p.atr20_pct,1)}%</div></div>
       </div>
       <div class="cover"><span>強制回補價 (昨收+8%) <b>${fmt(p.force_cover)}</b></span><span>漲停 <b>${fmt(p.limit_up)}</b></span></div>
+      <div class="kwrap" id="k_${p.stock_id}" style="display:none;margin-top:8px"><canvas width="640" height="220" style="width:100%;height:auto;display:block"></canvas><div class="muted" style="font-size:11px;margin-top:2px">5 分 K · 灰點線昨收 · 藍線開盤(進場參考) · 橘虛線 +8% 強制回補</div></div>
     </div>`).join("") : `<div class="pick muted">沒有符合條件的候選</div>`;
+  CUR_PICKS = picks; BARS = null;
+  document.querySelectorAll(".kbtn").forEach(a => a.onclick = ev => { ev.preventDefault(); toggleK(a.dataset.sid, a); });
   $("tbody").innerHTML = picks.map(p => `<tr><td>${p.stock_id}</td><td>${p.name ?? ""}</td><td>${fmt(p.open)}</td><td>${p.lots}</td><td>${money(p.amount)}</td><td>${fmt(p.force_cover)}</td><td>${fmt(p.limit_up)}</td></tr>`).join("");
   $("meta").textContent = `開盤價來源: ${j.source ?? "–"} · 模型: ${j.model ?? "–"} · 發布時間: ${j.published_at ?? "–"}`;
   if(j.date) $("dateIn").value = j.date;
@@ -197,6 +200,35 @@ async function loadCompare(date){
 }
 document.querySelectorAll("#seg button").forEach(b => b.onclick = () => { VARIANT = b.dataset.v; document.querySelectorAll("#seg button").forEach(x => x.classList.toggle("on", x === b)); $("cmpBox").style.display = "none"; try{ localStorage.setItem("variant", VARIANT); }catch(e){} load($("dateIn").value && $("dateIn").value !== lastLatest ? $("dateIn").value : null); });
 try{ const v = localStorage.getItem("variant"); if(v && ["main",SHADOW,"cmp"].includes(v)){ VARIANT = v; document.querySelectorAll("#seg button").forEach(x => x.classList.toggle("on", x.dataset.v === v)); } }catch(e){}
+let CUR_PICKS = [], BARS = null, BARS_DATE = null;
+async function toggleK(sid, a){
+  const box = $("k_" + sid); if(box.style.display !== "none"){ box.style.display = "none"; a.textContent = "分K ▾"; return; }
+  const date = $("dateIn").value; a.textContent = "載入中…";
+  if(!BARS || BARS_DATE !== date){
+    try{ const r = await fetch(BASE + `bars/${date}.json?t=` + Date.now(), {cache:"no-store"}); if(!r.ok) throw 0; BARS = (await r.json()).bars; BARS_DATE = date; }
+    catch(e){ a.textContent = "分K (尚無，隔天補)"; return; }
+  }
+  const bars = BARS[sid]; if(!bars){ a.textContent = "分K (無資料)"; return; }
+  const p = CUR_PICKS.find(x => x.stock_id === sid); box.style.display = ""; a.textContent = "分K ▴";
+  drawK(box.querySelector("canvas"), bars, p);
+}
+function drawK(cv, bars, p){
+  const ctx = cv.getContext("2d"), W = cv.width, H = cv.height, padL = 46, padR = 8, padT = 8, padB = 22;
+  const dark = matchMedia("(prefers-color-scheme: dark)").matches; const fg = dark ? "#e6e8ee" : "#1c1f26", mut = dark ? "#9aa3b2" : "#6b7280", grid = dark ? "#2a2f3a" : "#e5e7eb";
+  ctx.clearRect(0,0,W,H);
+  const lines = [p.prev_close, p.force_cover, p.open].filter(x => x != null);
+  let lo = Math.min(...bars.map(b => b[3]), ...lines), hi = Math.max(...bars.map(b => b[2]), ...lines); const pad = (hi-lo)*0.06 || 1; lo -= pad; hi += pad;
+  const x = t => padL + (t/270)*(W-padL-padR), y = v => padT + (1-(v-lo)/(hi-lo))*(H-padT-padB);
+  ctx.strokeStyle = grid; ctx.lineWidth = 1; ctx.font = "11px -apple-system,system-ui,sans-serif"; ctx.fillStyle = mut;
+  [0,60,120,180,240,270].forEach((t,i) => { ctx.beginPath(); ctx.moveTo(x(t), padT); ctx.lineTo(x(t), H-padB); ctx.stroke(); ctx.fillText(["09:00","10:00","11:00","12:00","13:00","13:30"][i], x(t)-16, H-6); });
+  for(let i=0;i<=4;i++){ const v = lo + (hi-lo)*i/4; ctx.beginPath(); ctx.moveTo(padL, y(v)); ctx.lineTo(W-padR, y(v)); ctx.stroke(); ctx.fillText(v.toFixed(1), 2, y(v)+4); }
+  const ref = (v, color, dash) => { if(v==null) return; ctx.save(); ctx.strokeStyle = color; ctx.setLineDash(dash); ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(padL, y(v)); ctx.lineTo(W-padR, y(v)); ctx.stroke(); ctx.restore(); };
+  ref(p.prev_close, mut, [2,3]); ref(p.force_cover, "#f59e0b", [6,4]); ref(p.open, "#60a5fa", []);
+  const bw = Math.max(2, (W-padL-padR)/55*0.6);
+  bars.forEach(b => { const [t,o,h,l,c] = b; const up = c >= o; ctx.strokeStyle = ctx.fillStyle = up ? "#ef4444" : "#22c55e"; const cx = x(t+2.5);
+    ctx.beginPath(); ctx.moveTo(cx, y(h)); ctx.lineTo(cx, y(l)); ctx.stroke(); const top = y(Math.max(o,c)), hgt = Math.max(1, Math.abs(y(o)-y(c))); ctx.fillRect(cx-bw/2, top, bw, hgt); });
+  const last = bars[bars.length-1][4]; ctx.fillStyle = fg; ctx.fillText("收 " + last.toFixed(2) + " (" + ((last/p.open-1)*100).toFixed(2) + "%)", W-padR-110, padT+12);
+}
 let HIST = [];
 async function loadHistory(){
   const sfx = (VARIANT === SHADOW) ? "_" + SHADOW : "";

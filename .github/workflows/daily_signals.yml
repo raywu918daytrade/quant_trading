@@ -54,6 +54,11 @@ jobs:
         run: |
           python3 scripts/record_results.py || true
           python3 scripts/record_results.py --variant base || true
+      - name: Build 5-min bars for published lists (bars/<date>.json, from HF db/m1)
+        if: always()
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: python3 scripts/build_bars.py || true
       - name: Upload signals as run artifact (backup)
         if: always()
         uses: actions/upload-artifact@v4
