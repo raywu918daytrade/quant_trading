@@ -247,7 +247,11 @@ function pollFor(d){
   const check = async () => {
     n++; const sec = Math.round((Date.now() - t0)/1000);
     try{ const r = await fetch(BASE + sigName(d, VARIANT === "cmp" ? "main" : VARIANT) + "?t=" + Date.now(), {cache:"no-store"}); if(r.ok){ stop(); try{ localStorage.removeItem(pendingKey(d)); }catch(e){} load(d); return; } }catch(e){}
-    let gh = ""; try{ const rr = await fetch(TRIGGER_URL + "/runs?n=1", {cache:"no-store"}); if(rr.ok){ const x = (await rr.json())[0]; if(x) gh = ({queued:"GitHub 排隊中", in_progress:"GitHub 執行中", completed: x.conclusion === "success" ? "GitHub 已完成，等 HF 同步" : "GitHub 執行失敗"})[x.status] || x.status; } }catch(e){}
+    let gh = ""; try{ const rr = await fetch(TRIGGER_URL + "/runs?n=3", {cache:"no-store"}); if(rr.ok){
+      // 只看「這次觸發之後」建立的 run, 避免拿到舊的失敗紀錄
+      const x = (await rr.json()).find(y => new Date(y.created_at).getTime() >= t0 - 90000);
+      gh = x ? (({queued:"GitHub 排隊中", in_progress:"GitHub 執行中", completed: x.conclusion === "success" ? "GitHub 已完成，等 HF 同步" : "GitHub 執行失敗"})[x.status] || x.status) : "等待 GitHub 排程";
+    } }catch(e){}
     setBusy(true, `補跑中 · ${sec} 秒`);
     if(n >= 24 || gh === "GitHub 執行失敗"){ stop(); $("status").innerHTML = `${d} 補跑${gh === "GitHub 執行失敗" ? "失敗" : " 4 分鐘仍沒有名單"}，可能那天不是交易日或資料不足。<a href="https://github.com/raywu918daytrade/quant_trading/actions/workflows/daily_signals.yml" target="_blank" rel="noopener" style="color:var(--accent)">看 GitHub 執行紀錄 ↗</a>`; }
     else $("status").textContent = `${d} 補跑中… ${gh || "等待 GitHub"} · 已等 ${sec} 秒，通常 60~90 秒，出來會自動顯示`;
