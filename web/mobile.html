@@ -122,7 +122,7 @@ function render(j){
   const picks = j.picks || [];
   $("picks").innerHTML = picks.length ? picks.map(p => `
     <div class="pick">
-      <div class="top"><div><span class="id">${p.stock_id}</span><span class="nm">${p.name ?? ""}</span></div><div class="rk">池內排名 ${p.rank} · 分數 ${fmt(p.pred_pct)}%</div></div>
+      <div class="top"><div><span class="id">${p.stock_id}</span><span class="nm">${p.name ?? ""}</span> <a href="https://tw.stock.yahoo.com/quote/${p.stock_id}" target="_blank" rel="noopener" style="color:var(--accent);font-size:12px;margin-left:6px;text-decoration:none">走勢 ↗</a></div><div class="rk">池內排名 ${p.rank} · 分數 ${fmt(p.pred_pct)}%</div></div>
       <div class="grid">
         <div><div class="k">開盤</div><div class="v big">${fmt(p.open)}</div></div>
         <div><div class="k">張數</div><div class="v big">${p.lots}</div></div>
@@ -190,7 +190,7 @@ async function loadCompare(date){
     $("cmpCards").innerHTML = [["正式 · 模擬累積", ca], ["影子 · 模擬累積", cb]].map(([k, c]) => `<div class="card"><div class="k">${k}</div><div class="v ${c.n ? pctCls(c.pct) : ""}" style="font-size:19px">${c.n ? pct(c.pct) : "尚無"}</div><div class="k">${c.n ? c.n + " 天 · 日勝率 " + Math.round(c.win*100) + "%" + " · 無停損 " + pct(c.nostop) + " (觸發 " + c.stops + " 天)" : "等結算後出現"}</div></div>`).join("");
     const pa = (a && a.picks) || [], pb = (b && b.picks) || []; const ia = new Set(pa.map(p=>p.stock_id)), ib = new Set(pb.map(p=>p.stock_id));
     const n = Math.max(pa.length, pb.length); let rows = [];
-    for(let i=0;i<n;i++){ const x = pa[i], y = pb[i]; rows.push(`<tr><td style="${x && ib.has(x.stock_id) ? "font-weight:700" : ""}">${x ? x.stock_id + " " + (x.name||"") : ""}</td><td style="${y && ia.has(y.stock_id) ? "font-weight:700" : ""}">${y ? y.stock_id + " " + (y.name||"") : ""}</td></tr>`); }
+    for(let i=0;i<n;i++){ const x = pa[i], y = pb[i]; rows.push(`<tr><td style="${x && ib.has(x.stock_id) ? "font-weight:700" : ""}">${x ? `<a href="https://tw.stock.yahoo.com/quote/${x.stock_id}" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">${x.stock_id} ${x.name||""}</a>` : ""}</td><td style="${y && ia.has(y.stock_id) ? "font-weight:700" : ""}">${y ? `<a href="https://tw.stock.yahoo.com/quote/${y.stock_id}" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">${y.stock_id} ${y.name||""}</a>` : ""}</td></tr>`); }
     $("cmpBody").innerHTML = rows.join("") || `<tr><td colspan="2" class="muted">尚無影子名單</td></tr>`;
     $("cmpBox").style.display = "";
   }catch(e){ $("cmpBox").style.display = "none"; }
@@ -216,7 +216,7 @@ async function loadHistory(){
 function showHistDay(d){
   const rows = HIST.filter(r => r.date === d); if(!rows.length){ $("histDetail").style.display = "none"; return; }
   $("histDetailTitle").textContent = d + " 各檔 (點日期列切換)";
-  $("histDetailBody").innerHTML = rows.map(r => `<tr><td>${r.stock_id}</td><td>${r.name||""}</td><td>${r.lots}</td><td>${fmt(+r.entry)}</td><td>${fmt(+r.exit)}</td><td>${({forced:"強制",close:"收盤",lock:"鎖漲停",lock_pending:"鎖漲停*"})[r.exit_reason]||r.exit_reason}</td><td class="${pctCls(+r.net_pct)}">${(+r.net_pct>0?"+":"")+fmt(+r.net_pct)}</td><td class="${pctCls(+r.pnl)}">${money(+r.pnl)}</td></tr>`).join("");
+  $("histDetailBody").innerHTML = rows.map(r => `<tr><td><a href="https://tw.stock.yahoo.com/quote/${r.stock_id}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none">${r.stock_id}</a></td><td>${r.name||""}</td><td>${r.lots}</td><td>${fmt(+r.entry)}</td><td>${fmt(+r.exit)}</td><td>${({forced:"強制",close:"收盤",lock:"鎖漲停",lock_pending:"鎖漲停*"})[r.exit_reason]||r.exit_reason}</td><td class="${pctCls(+r.net_pct)}">${(+r.net_pct>0?"+":"")+fmt(+r.net_pct)}</td><td class="${pctCls(+r.pnl)}">${money(+r.pnl)}</td></tr>`).join("");
   $("histDetail").style.display = "";
 }
 let TRIGGER_URL = "https://quant-trigger.raywu918daytrade.workers.dev";   // Cloudflare Worker (trigger/worker.js); 可用 ?trigger=https://... 覆寫
