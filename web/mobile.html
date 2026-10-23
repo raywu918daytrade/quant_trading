@@ -27,7 +27,7 @@ td:first-child,th:first-child,td:nth-child(2),th:nth-child(2){text-align:left}
 .muted{color:var(--muted);font-size:12px}button{background:var(--accent);color:#fff;border:0;border-radius:8px;padding:7px 12px;font-weight:600;font-size:14px}button:disabled{opacity:.5;cursor:default}
 input[type=date]{background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:14px}
 .seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;margin-bottom:10px}.seg button{flex:1;background:transparent;color:var(--muted);border:0;border-radius:0;padding:7px 4px;font-size:13px}.seg button.on{background:color-mix(in srgb,var(--accent) 18%,transparent);color:var(--accent)}
-.datebar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}.datebar .sec{background:transparent;color:var(--accent);border:1px solid var(--accent)}.datebar .muted{flex-basis:100%}
+.datebar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}.seg.tabs{margin-top:-4px}.seg.tabs button.on{background:color-mix(in srgb,var(--green) 18%,transparent);color:var(--green)}.datebar .sec{background:transparent;color:var(--accent);border:1px solid var(--accent)}.datebar .muted{flex-basis:100%}
 h2{font-size:15px;margin:18px 0 8px}footer{color:var(--muted);font-size:12px;padding:16px;text-align:center;line-height:1.7}
 details summary{cursor:pointer;color:var(--accent);font-size:14px}
 </style></head><body>
@@ -35,6 +35,8 @@ details summary{cursor:pointer;color:var(--accent);font-size:14px}
 <main>
   <div class="datebar"><input type="date" id="dateIn"><button id="btnDate">載入</button><button id="btnLatest" class="sec">回最新</button><span id="status" class="muted"></span></div>
   <div class="seg" id="seg"><button data-v="main" class="on">正式：支撐壓力</button><button data-v="base">影子：基準</button><button data-v="cmp">對照</button></div>
+  <div class="seg tabs" id="tabs"><button data-t="list" class="on">名單</button><button data-t="paper">模擬</button><button data-t="hist">紀錄</button></div>
+  <div id="pane-list">
   <div id="cmpBox" style="display:none">
     <div class="cards" id="cmpCards"></div>
     <div class="wrap"><table><thead><tr><th>正式</th><th>影子</th></tr></thead><tbody id="cmpBody"></tbody></table></div>
@@ -47,6 +49,8 @@ details summary{cursor:pointer;color:var(--accent);font-size:14px}
     <div class="card"><div class="k">池 / 選入</div><div class="v" id="cCnt">–</div></div>
     <div class="card"><div class="k">投入金額</div><div class="v" id="cAmt">–</div></div>
   </div>
+  </div>
+  <div id="pane-paper" style="display:none">
   <h2 style="margin-top:4px">模擬下單 (永豐模擬環境) <small id="paperDate"></small></h2>
   <div id="liveBox" style="display:none">
     <div class="cards" id="liveCards"></div>
@@ -57,17 +61,24 @@ details summary{cursor:pointer;color:var(--accent);font-size:14px}
   <details id="paperDetails" style="display:none"><summary>各檔成交</summary>
     <div class="wrap"><table><thead><tr><th>代號</th><th>名稱</th><th>券賣</th><th>買回</th><th>出場</th><th>模擬淨%</th><th>tick淨%</th></tr></thead><tbody id="paperBody"></tbody></table></div>
   </details>
+  </div>
+  <div id="pane-list2">
   <h2>今日名單</h2>
   <div id="picks" class="list"></div>
-  <h2 style="margin-top:18px">交易紀錄 <small id="histMeta" class="muted"></small></h2>
+  </div>
+  <div id="pane-hist" style="display:none">
+  <h2 style="margin-top:4px">交易紀錄 <small id="histMeta" class="muted"></small></h2>
   <div class="cards" id="histCards"><div class="card" style="grid-column:1/-1"><div class="k">尚無紀錄</div></div></div>
   <div class="wrap"><table><thead><tr><th>日期</th><th>檔</th><th>勝</th><th>損益元</th><th>%</th></tr></thead><tbody id="histBody"></tbody></table></div>
   <div id="histDetail" style="display:none;margin-top:8px"><div class="muted" id="histDetailTitle" style="margin-bottom:4px"></div><div class="wrap"><table><thead><tr><th>代號</th><th>名稱</th><th>張</th><th>進場</th><th>出場</th><th>方式</th><th>淨%</th><th>損益</th></tr></thead><tbody id="histDetailBody"></tbody></table></div>
     <div id="histK" style="display:none;margin-top:8px"><div class="muted" id="histKTitle" style="font-size:12px;margin-bottom:2px"></div><canvas width="640" height="220" style="width:100%;height:auto;display:block"></canvas><div class="muted" style="font-size:11px;margin-top:2px">5 分 K · 灰點線昨收 · 藍線進場 · 白虛線出場 · 橘虛線 +8%</div></div></div>
   <details style="margin-top:6px"><summary class="muted" style="font-size:12px">說明</summary><p class="muted" style="margin:6px 0 0">依當天發布的名單用日線結算 (進場開盤價、觸 +8% 以強制價出、否則收盤價、成本 0.23%)，每天 09:01 自動追加，換模型也接續記錄 (model 欄位可區分)。補跑: 選日期按「載入」，平日且非未來日期沒有名單時自動觸發補跑 (需 PIN，問一次)，每 10 秒自動檢查、出來直接顯示。每個日期只自動補跑一次；5 分鐘內或 GitHub 執行中不重複觸發；之後重整只顯示手動連結。</p></details>
+  </div>
+  <div id="pane-list3">
   <details style="margin-top:14px"><summary>表格檢視</summary>
     <div class="wrap"><table><thead><tr><th>代號</th><th>名稱</th><th>開盤</th><th>張數</th><th>金額</th><th>強制回補</th><th>漲停</th></tr></thead><tbody id="tbody"></tbody></table></div>
   </details>
+  </div>
   <p class="muted" id="meta"></p>
   <p class="muted">出場: 盤中 ≥ 昨收 +8% 立即市價回補；13:24 現價 ≥ 昨收 +6% 先回補；13:26 其餘市價回補 (13:30 收盤價成交)。無停損停利。</p>
 </main>
@@ -321,6 +332,15 @@ async function replay(d){
     return true;
   }catch(e){ $("status").textContent = "✗ 連不到代理，確認 Worker 網址是否正確 (可用 ?trigger= 重設)"; return false; }
 }
+let TAB = "list";
+function showTab(t){
+  TAB = t; document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.t === t));
+  ["pane-list","pane-list2","pane-list3"].forEach(id => $(id).style.display = t === "list" ? "" : "none");
+  $("pane-paper").style.display = t === "paper" ? "" : "none"; $("pane-hist").style.display = t === "hist" ? "" : "none";
+  try{ localStorage.setItem("tab", t); }catch(e){}
+}
+document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => showTab(b.dataset.t));
+try{ const t = localStorage.getItem("tab"); if(["list","paper","hist"].includes(t)) showTab(t); }catch(e){}
 $("btnDate").onclick = () => load($("dateIn").value || null);
 $("btnLatest").onclick = () => load(null);
 let lastLatest = null;
