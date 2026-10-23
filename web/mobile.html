@@ -150,7 +150,8 @@ async function loadPaper(date){
     $("paperCards").innerHTML = [
       ["成交 / 名單", `${s.n_filled} / ${s.n_picks}`], ["模擬平均淨報酬", pct(s.sim_avg_net_pct)],
       ["真實tick平均淨報酬", pct(s.tick_avg_net_pct)], ["勝率", s.sim_win_rate==null ? "–" : Math.round(s.sim_win_rate*100)+"%"],
-      ["強制回補 / 觸及" + (s.portfolio_stop ? " · 組合停損" : ""), `${s.n_forced} / ${s.n_touched_force}`], ["模擬淨損益", s.sim_pnl_net==null ? "–" : money(s.sim_pnl_net)+" 元"]
+      ["強制回補 / 觸及" + (s.portfolio_stop ? " · 組合停損" : ""), `${s.n_forced} / ${s.n_touched_force}`], ["模擬淨損益", s.sim_pnl_net==null ? "–" : money(s.sim_pnl_net)+" 元"],
+      ["若無組合停損 淨損益", s.nostop_pnl_net==null ? "–" : money(s.nostop_pnl_net)+" 元" + (s.portfolio_stop ? "" : " (未觸發, 同左)")]
     ].map(([k,v]) => `<div class="card"><div class="k">${k}</div><div class="v ${/^[+-]/.test(v) ? (v.startsWith("+")?"pos":"neg") : ""}">${v}</div></div>`).join("");
     try{
       const t = await fetch(PAPER + `${s.date}_trades.csv?t=` + Date.now(), {cache:"no-store"}); const txt = await t.text();
@@ -169,9 +170,9 @@ async function loadCompare(date){
   try{
     const [a, b] = await Promise.all([fetchJ(BASE + sigName(date, "main")).catch(()=>null), fetchJ(BASE + sigName(date, SHADOW)).catch(()=>null)]);
     const [sa, sb] = await Promise.all([fetchCsv(paperBase("main") + "summary.csv"), fetchCsv(paperBase(SHADOW) + "summary.csv")]);
-    const cum = rows => { const r = rows.filter(x => x.sim_pnl_net !== "" && x.sim_pnl_net != null); const pct = r.reduce((t,x) => t + (+x.sim_pnl_net || 0), 0) / 3000000 * 100; const wins = r.filter(x => +x.sim_pnl_net > 0).length; return {n: r.length, pct, win: r.length ? wins/r.length : null}; };
+    const cum = rows => { const r = rows.filter(x => x.sim_pnl_net !== "" && x.sim_pnl_net != null); const pct = r.reduce((t,x) => t + (+x.sim_pnl_net || 0), 0) / 3000000 * 100; const wins = r.filter(x => +x.sim_pnl_net > 0).length; const nostop = r.reduce((t,x) => t + (x.nostop_pnl_net === "" || x.nostop_pnl_net == null ? (+x.sim_pnl_net || 0) : +x.nostop_pnl_net), 0) / 3000000 * 100; const stops = r.filter(x => x.portfolio_stop === "True" || x.portfolio_stop === true).length; return {n: r.length, pct, win: r.length ? wins/r.length : null, nostop, stops}; };
     const ca = cum(sa), cb = cum(sb); const pct = v => (v>0?"+":"") + fmt(v) + "%";
-    $("cmpCards").innerHTML = [["正式 · 模擬累積", ca], ["影子 · 模擬累積", cb]].map(([k, c]) => `<div class="card"><div class="k">${k}</div><div class="v ${c.n ? pctCls(c.pct) : ""}" style="font-size:19px">${c.n ? pct(c.pct) : "尚無"}</div><div class="k">${c.n ? c.n + " 天 · 日勝率 " + Math.round(c.win*100) + "%" : "等結算後出現"}</div></div>`).join("");
+    $("cmpCards").innerHTML = [["正式 · 模擬累積", ca], ["影子 · 模擬累積", cb]].map(([k, c]) => `<div class="card"><div class="k">${k}</div><div class="v ${c.n ? pctCls(c.pct) : ""}" style="font-size:19px">${c.n ? pct(c.pct) : "尚無"}</div><div class="k">${c.n ? c.n + " 天 · 日勝率 " + Math.round(c.win*100) + "%" + " · 無停損 " + pct(c.nostop) + " (觸發 " + c.stops + " 天)" : "等結算後出現"}</div></div>`).join("");
     const pa = (a && a.picks) || [], pb = (b && b.picks) || []; const ia = new Set(pa.map(p=>p.stock_id)), ib = new Set(pb.map(p=>p.stock_id));
     const n = Math.max(pa.length, pb.length); let rows = [];
     for(let i=0;i<n;i++){ const x = pa[i], y = pb[i]; rows.push(`<tr><td style="${x && ib.has(x.stock_id) ? "font-weight:700" : ""}">${x ? x.stock_id + " " + (x.name||"") : ""}</td><td style="${y && ia.has(y.stock_id) ? "font-weight:700" : ""}">${y ? y.stock_id + " " + (y.name||"") : ""}</td></tr>`); }

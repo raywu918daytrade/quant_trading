@@ -23,7 +23,8 @@ def month_paths(args):
     return out
 
 if __name__ == "__main__":
-    R = pd.read_parquet(ROOT/"data/processed/trailing_stop_trades.parquet")
+    TAG = sys.argv[sys.argv.index("--tag")+1] if "--tag" in sys.argv else ""
+    R = pd.read_parquet(ROOT/"data/processed"/f"trailing_stop_trades{TAG}.parquet")
     R = R.rename(columns={"gross|現行 (無移動停利)": "gross_base"})[["stock_id","date","entry","prev_close","next_open","rank","gross_base"]]
     # 300 萬配置的每檔金額 (與 alloc 相同)
     amts = []
@@ -89,4 +90,4 @@ if __name__ == "__main__":
             ret[day] = tot/CAP
         s = pd.Series(ret); r = stats(s, f"組合浮虧 −{X*100:.1f}% 全部回補"); r["觸發天數"] = n_trig; rows.append(r)
     P(pd.DataFrame(rows).set_index("規則").round(3).to_markdown())
-    (OUT/"portfolio_stop_test.md").write_text("\n".join(L)); print("\n".join(L))
+    (OUT/f"portfolio_stop_test{TAG}.md").write_text("\n".join(L)); print("\n".join(L))

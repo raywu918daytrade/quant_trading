@@ -27,7 +27,8 @@ def build_trades():
     f = F.build_B(F.d1_base(d1)); nxt = d1[["stock_id","date","open"]].sort_values(["stock_id","date"]); nxt["next_open"] = nxt.groupby("stock_id").open.shift(-1)
     f = f.merge(nxt[["stock_id","date","next_open"]], on=["stock_id","date"], how="left")
     pool = f[F.universe_mask(f) & (f.dv20_prev>=5e8) & (f.atr20>=0.03) & f.y_intra.notna() & f.open.notna()].copy()
-    pr = pd.concat([pd.read_parquet(ROOT/"data/processed/preds_B_pool_ext.parquet")[["date","stock_id","pred"]], pd.read_parquet(ROOT/"data/processed/preds_B_pool.parquet").query("date>='2024-10-01'")[["date","stock_id","pred"]]])
+    if "--preds" in sys.argv: pr = pd.read_parquet(sys.argv[sys.argv.index("--preds")+1])[["date","stock_id","pred"]]
+    else: pr = pd.concat([pd.read_parquet(ROOT/"data/processed/preds_B_pool_ext.parquet")[["date","stock_id","pred"]], pd.read_parquet(ROOT/"data/processed/preds_B_pool.parquet").query("date>='2024-10-01'")[["date","stock_id","pred"]]])
     ext = pd.concat([pd.read_parquet(x) for x in sorted(glob.glob(str(ROOT/"data/processed/m1_entry_ext/*.parquet")))], ignore_index=True)
     d = pool.merge(pr, on=["stock_id","date"]).merge(ext, on=["stock_id","date"]); d = d[d.e01_vwap.notna()].copy(); d["entry"] = d.e01_vwap
     e = d[(d.gap<=GAP_MAX)&(d.mkt_gap>=MKT_MIN)&(d.entry>d.prev_close*0.905)&(d.entry<=MAX_PX)&(d.date.dt.dayofweek!=0)].copy()
@@ -81,7 +82,8 @@ if __name__ == "__main__":
     jobs = [(str(ROOT/"data/raw/m1"/f"{ym}.parquet"), g) for ym, g in trades.groupby("ym") if (ROOT/"data/raw/m1"/f"{ym}.parquet").exists()]
     with ProcessPoolExecutor(6) as ex: parts = list(ex.map(simulate_month, jobs))
     R = pd.concat(parts, ignore_index=True).merge(trades[["stock_id","date","rank"]], on=["stock_id","date"])
-    R.to_parquet(ROOT/"data/processed/trailing_stop_trades.parquet", index=False)
+    TAG = sys.argv[sys.argv.index("--tag")+1] if "--tag" in sys.argv else ""
+    R.to_parquet(ROOT/"data/processed"/f"trailing_stop_trades{TAG}.parquet", index=False)
     print(f"simulated {len(R)} trades", flush=True)
     all_days = pd.Series(sorted(R.date.unique()))
     def alloc(y, col):
@@ -113,4 +115,4 @@ if __name__ == "__main__":
     for name in ["trail 2%", "trail 2% after +1%", "MA20"]:
         m = R[f"reason|{name}"]=="trail"; held = R.loc[m, "gross|現行 (無移動停利)"]; stopped = R.loc[m, f"gross|{name}"]
         P(f"- {name}: 被停利的 {m.sum()} 筆 ({m.mean()*100:.0f}%), 停利時每筆 {stopped.mean()*100:+.3f}% vs 若持有到收盤 {held.mean()*100:+.3f}% (差 {(stopped-held).mean()*100:+.3f}%)；未被停利的 {(~m).sum()} 筆每筆 {R.loc[~m, 'gross|現行 (無移動停利)'].mean()*100:+.3f}%")
-    (OUT/"trailing_stop_test.md").write_text("\n".join(L)); print("\n".join(L))
+    (OUT/f"trailing_stop_test{TAG}.md").write_text("\n".join(L)); print("\n".join(L))

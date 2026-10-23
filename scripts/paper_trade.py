@@ -290,6 +290,12 @@ class Paper:
             vw = self.vwap(code, t0, t1)
             sim_ret = (sell_px / buy_px - 1) if (sell_px and buy_px) else None
             tick_ret = (vw / last - 1) if (vw and last) else None
+            # 反事實: 若沒有組合停損 → 依其餘規則用 tick 估 (觸 +8% 以強制價, 否則最後 tick 當收盤)
+            if p.get("_exit_reason") == "portfolio_stop" and sell_px:
+                hi = self.high.get(code, 0); fc = p["force_cover"]
+                nostop_exit = (fc*(1+0.003)) if hi >= fc else last
+                nostop_ret = (sell_px/nostop_exit - 1) if nostop_exit else None
+            else: nostop_ret = sim_ret
             rows.append({"date": self.date, "stock_id": code, "name": p.get("name"), "lots": p.get("lots"), "prev_close": p.get("prev_close"),
                          "open_signal": p.get("open"), "force_cover": p.get("force_cover"), "day_trade": str(getattr(self.contracts.get(code), "day_trade", "")),
                          "skipped": self.skipped.get(code, ""), "sim_sell_px": sell_px, "sim_sell_lots": sell_q, "sim_buy_px": buy_px, "sim_buy_lots": buy_q,
@@ -298,13 +304,15 @@ class Paper:
                          "sim_net_pct": None if sim_ret is None else round((sim_ret - COST_RT)*100, 3),
                          "tick_ret_pct": None if tick_ret is None else round(tick_ret*100, 3),
                          "tick_net_pct": None if tick_ret is None else round((tick_ret - COST_RT)*100, 3),
-                         "touched_force": bool(self.high.get(code, 0) >= p["force_cover"])})
+                         "touched_force": bool(self.high.get(code, 0) >= p["force_cover"]),
+                         "nostop_net_pct": None if nostop_ret is None else round((nostop_ret - COST_RT)*100, 3)})
         return rows
 
 def summarize(rows, date_str, no_trade, mode):
     def mean(k):
         xs = [r[k] for r in rows if r.get(k) is not None]; return round(sum(xs)/len(xs), 3) if xs else None
     amt = sum((r["sim_sell_px"] or 0) * 1000 * (r["sim_sell_lots"] or 0) for r in rows)
+    pnl_nostop = sum((r["sim_sell_px"] or 0) * 1000 * (r["sim_sell_lots"] or 0) * ((r.get("nostop_net_pct") or 0)/100 + COST_RT) for r in rows if r["sim_sell_px"])
     pnl = sum(((r["sim_sell_px"] or 0) - (r["sim_buy_px"] or 0)) * 1000 * (r["sim_buy_lots"] or 0) for r in rows if r["sim_sell_px"] and r["sim_buy_px"])
     return {"date": date_str, "mode": mode, "no_trade": no_trade, "n_picks": len(rows), "n_filled": sum(1 for r in rows if r["sim_sell_px"]),
             "n_skipped": sum(1 for r in rows if r["skipped"]), "n_forced": sum(1 for r in rows if r["exit_reason"] == "forced"),
@@ -312,7 +320,8 @@ def summarize(rows, date_str, no_trade, mode):
             "n_touched_force": sum(1 for r in rows if r["touched_force"]), "sim_avg_net_pct": mean("sim_net_pct"), "tick_avg_net_pct": mean("tick_net_pct"),
             "sim_win_rate": (round(sum(1 for r in rows if (r["sim_net_pct"] or 0) > 0) / max(1, sum(1 for r in rows if r["sim_net_pct"] is not None)), 3)
                              if any(r["sim_net_pct"] is not None for r in rows) else None),
-            "sim_amount": round(amt), "sim_pnl_gross": round(pnl), "sim_pnl_net": round(pnl - amt * COST_RT), "finished_at": now().strftime("%Y-%m-%d %H:%M:%S")}
+            "sim_amount": round(amt), "sim_pnl_gross": round(pnl), "sim_pnl_net": round(pnl - amt * COST_RT),
+            "nostop_pnl_net": round(pnl_nostop - amt * COST_RT), "nostop_avg_net_pct": mean("nostop_net_pct"), "finished_at": now().strftime("%Y-%m-%d %H:%M:%S")}
 
 def publish(date_str, rows, summ):
     token = os.environ.get("HF_TOKEN")
