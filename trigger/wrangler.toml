@@ -1,0 +1,5 @@
+# 可選: 用 wrangler CLI 部署 (npm i -g wrangler; wrangler login; wrangler deploy; wrangler secret put GH_TOKEN; wrangler secret put API_PIN)
+# 也可以不用 CLI: Cloudflare Dashboard → Workers & Pages → Create → Hello World → 名稱 quant-trigger → Edit code → 貼 worker.js → Deploy → Settings → Variables and Secrets 填 GH_TOKEN、API_PIN。
+name = "quant-trigger"
+main = "worker.js"
+compatibility_date = "2025-01-01"
