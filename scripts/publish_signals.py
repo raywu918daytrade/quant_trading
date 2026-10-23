@@ -57,17 +57,25 @@ def main():
 
     from huggingface_hub import HfApi, CommitOperationAdd
     api = HfApi(token=token)
+    # 回放舊日期時不可把 latest.json 倒退: 只有 date >= HF 上目前 latest 的日期才更新 latest*.json
+    def latest_date(name):
+        try:
+            import requests; r = requests.get(f"https://huggingface.co/datasets/{REPO}/resolve/main/{PREFIX}/{name}", params={"t": "1"}, timeout=20)
+            return r.json().get("date", "") if r.ok else ""
+        except Exception: return ""
+    is_latest = date >= latest_date("latest.json")
     ops = [CommitOperationAdd(path_in_repo=f"{PREFIX}/{f.name}", path_or_fileobj=str(f)) for f in files]
-    ops += [CommitOperationAdd(path_in_repo=f"{PREFIX}/{date}.json", path_or_fileobj=js),
-            CommitOperationAdd(path_in_repo=f"{PREFIX}/latest.json", path_or_fileobj=js)]
-    msg = f"signals {date}: {payload['n_picks']} picks" + (" (no trade)" if payload["no_trade"] else "")
+    ops += [CommitOperationAdd(path_in_repo=f"{PREFIX}/{date}.json", path_or_fileobj=js)]
+    if is_latest: ops.append(CommitOperationAdd(path_in_repo=f"{PREFIX}/latest.json", path_or_fileobj=js))
+    msg = f"signals {date}: {payload['n_picks']} picks" + (" (no trade)" if payload["no_trade"] else "") + ("" if is_latest else " (replay, latest 不動)")
     # 影子模型 (seq) 名單: 有就一起上傳, 寫 <date>_seq.json 與 latest_seq.json
     for v in ("base", "sr", "seq"):   # 影子變體 (帶後綴的) 一併上傳
         vf = [SIG/f"{date}_{v}{s}" for s in (".csv", ".txt", "_pool.csv", "_meta.json")]
         if all(f.exists() for f in vf):
             pj = build_json(date, f"_{v}"); sjs = json.dumps(pj, ensure_ascii=False, indent=1).encode("utf-8")
             ops += [CommitOperationAdd(path_in_repo=f"{PREFIX}/{f.name}", path_or_fileobj=str(f)) for f in vf]
-            ops += [CommitOperationAdd(path_in_repo=f"{PREFIX}/{date}_{v}.json", path_or_fileobj=sjs), CommitOperationAdd(path_in_repo=f"{PREFIX}/latest_{v}.json", path_or_fileobj=sjs)]
+            ops += [CommitOperationAdd(path_in_repo=f"{PREFIX}/{date}_{v}.json", path_or_fileobj=sjs)]
+            if date >= latest_date(f"latest_{v}.json"): ops.append(CommitOperationAdd(path_in_repo=f"{PREFIX}/latest_{v}.json", path_or_fileobj=sjs))
             msg += f"; {v} {pj['n_picks']} picks"
     info = api.create_commit(repo_id=REPO, repo_type="dataset", operations=ops, commit_message=msg)
     print(f"已上傳 {len(ops)} 個檔案到 {REPO}/{PREFIX} ({msg})")
