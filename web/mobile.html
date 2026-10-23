@@ -249,7 +249,7 @@ function pollFor(d){
     try{ const r = await fetch(BASE + sigName(d, VARIANT === "cmp" ? "main" : VARIANT) + "?t=" + Date.now(), {cache:"no-store"}); if(r.ok){ stop(); try{ localStorage.removeItem(pendingKey(d)); }catch(e){} load(d); return; } }catch(e){}
     let gh = ""; try{ const rr = await fetch(TRIGGER_URL + "/runs?n=3", {cache:"no-store"}); if(rr.ok){
       // 只看「這次觸發之後」建立的 run, 避免拿到舊的失敗紀錄
-      const x = (await rr.json()).find(y => new Date(y.created_at).getTime() >= t0 - 90000);
+      const x = (await rr.json()).find(y => new Date(y.created_at).getTime() >= t0 - 90000 && y.conclusion !== "cancelled");   // 重複觸發被 GitHub 取消的不算
       gh = x ? (({queued:"GitHub 排隊中", in_progress:"GitHub 執行中", completed: x.conclusion === "success" ? "GitHub 已完成，等 HF 同步" : "GitHub 執行失敗"})[x.status] || x.status) : "等待 GitHub 排程";
     } }catch(e){}
     setBusy(true, `補跑中 · ${sec} 秒`);
