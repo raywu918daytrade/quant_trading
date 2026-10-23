@@ -78,12 +78,38 @@ def main():
     ap.add_argument("--max-per-stock", type=float, default=600_000); ap.add_argument("--max-price", type=float, default=MAX_PRICE)
     ap.add_argument("--max-n", type=int, default=10); ap.add_argument("--min-amount", type=float, default=100_000, help="單檔金額低於此不做 (避免零頭部位)")
     ap.add_argument("--no-daytrade-filter", action="store_true", help="不過濾現股當沖先賣後買資格 (對照用)")
+    ap.add_argument("--skip-existing", action="store_true", help="回放多日時, 跳過 HF 上已發布的日期 (保留當時版本)")
     ap.add_argument("--variant", default=CFG.MAIN_VARIANT, choices=CFG.VARIANTS + ["all"], help=f"模型變體 (base=基準33特徵, sr=基準+支撐壓力, seq=基準+K線序列; all=正式+影子一次算). 正式={CFG.MAIN_VARIANT} 輸出不帶後綴, 其他輸出檔名加 _<variant>")
     a = ap.parse_args()
     if a.refresh: refresh_d1(a.months)
 
     d1 = pd.read_parquet(ROOT/"data/processed/d1.parquet")
     last = d1.date.max()
+    # --date 可以是 YYYY-MM-DD / YYYY-MM (整月) / A..B (區間): 多日回放時特徵只算一次, 逐日輸出
+    if a.date and (len(a.date) == 7 or ".." in a.date):
+        all_dates = sorted(d1.date.unique())
+        if ".." in a.date: lo, hi = [pd.Timestamp(x) for x in a.date.split("..")]
+        else: lo = pd.Timestamp(a.date + "-01"); hi = lo + pd.offsets.MonthEnd(0)
+        dates = [d for d in all_dates if lo <= d <= hi]
+        if a.skip_existing:
+            import requests
+            try:
+                tree = requests.get(f"https://huggingface.co/api/datasets/{REPO}/tree/main/db/signals", timeout=30).json()
+                have = {x["path"].split("/")[-1][:10] for x in tree if x["path"].endswith(".json")}
+                dates = [d for d in dates if d.strftime("%Y-%m-%d") not in have]
+            except Exception as ex: print("查 HF 已發布日期失敗, 全部重算:", ex)
+        print(f"多日回放 {a.date}: {len(dates)} 天 {[d.strftime('%m-%d') for d in dates]}")
+        if not dates: print("沒有需要回放的日期"); return
+        base_df = F.d1_base(d1); f = F.build_B(base_df)
+        variants = [CFG.MAIN_VARIANT, CFG.SHADOW_VARIANT] if a.variant == "all" else [a.variant]
+        if "seq" in variants: f = f.merge(F.build_seq(base_df), on=["stock_id","date"], how="left")
+        for tdate in dates:
+            t_all = f[f.date == tdate].copy()
+            if len(t_all) == 0: continue
+            t_all = t_all.merge(d1[d1.date == tdate][["stock_id","name"]].drop_duplicates("stock_id"), on="stock_id", how="left")
+            for a.variant in variants:
+                run_variant(a, t_all.copy(), d1, base_df, tdate, "歷史 D1 open", F.D1_FEATS + F.shadow_feats(a.variant), CFG.suffix(a.variant))
+        return
     tdate = pd.Timestamp(a.date).normalize() if a.date else pd.Timestamp.today().normalize()
     replay = tdate <= last
     print(f"本地 D1 最後日期 {last.date()}；目標日 {tdate.date()} ({'回放模式: 用歷史開盤價' if replay else '即時模式'})")

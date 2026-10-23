@@ -8,7 +8,7 @@ on:
         description: "從 HF 抓最近幾個月 D1"
         default: "6"
       date:
-        description: "回放日期 YYYY-MM-DD (留空=今天即時)"
+        description: "回放: YYYY-MM-DD 單日 / YYYY-MM 整月 / A..B 區間 (留空=今天即時); 已發布的日期會跳過"
         default: ""
 concurrency:
   group: daily-signals
@@ -40,11 +40,13 @@ jobs:
       - name: Generate candidates, main + shadow in one pass (fetch opens from TWSE MIS once)
         run: |
           D="${{ github.event.inputs.date }}"
-          if [ -n "$D" ]; then python3 scripts/daily_candidates.py --date "$D" --variant all; else python3 scripts/daily_candidates.py --variant all; fi
+          if [ -n "$D" ]; then python3 scripts/daily_candidates.py --date "$D" --variant all --skip-existing; else python3 scripts/daily_candidates.py --variant all; fi
       - name: Publish to HF db/signals
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: python3 scripts/publish_signals.py
+        run: |
+          D="${{ github.event.inputs.date }}"
+          if [ -n "$D" ]; then python3 scripts/publish_signals.py --all; else python3 scripts/publish_signals.py; fi
       - name: Settle previously published lists with latest D1 (history.csv, forward-only)
         if: always() && github.event.inputs.date == ''      # 補跑 (指定 date) 時跳過, 隔天 09:01 會自動補結算
         env:

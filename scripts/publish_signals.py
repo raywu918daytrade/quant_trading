@@ -44,11 +44,35 @@ def build_json(date: str, sfx: str = "") -> dict:
 def main():
     token = os.environ.get("HF_TOKEN")
     if not token: sys.exit("錯誤: 環境變數 HF_TOKEN 未設定 (需要 HF 寫入 token)")
-    if len(sys.argv) > 1: date = sys.argv[1]
+    args = [x for x in sys.argv[1:] if not x.startswith("--")]
+    metas = sorted(glob.glob(str(SIG/"????-??-??_meta.json")))   # 正式 (不帶後綴) 的 meta
+    if "--all" in sys.argv: dates = [Path(m).name[:10] for m in metas]
+    elif args: dates = args
     else:
-        metas = sorted(glob.glob(str(SIG/"*_meta.json")))
         if not metas: sys.exit("signals/ 沒有任何 *_meta.json")
-        date = Path(metas[-1]).name.replace("_meta.json", "")
+        dates = [Path(metas[-1]).name[:10]]
+    if len(dates) > 1:   # 多日: 一個 commit 全部上傳, latest 只看最大日期
+        from huggingface_hub import HfApi, CommitOperationAdd
+        import requests
+        api = HfApi(token=token); ops = []; msgs = []
+        def latest_date(name):
+            try: r = requests.get(f"https://huggingface.co/datasets/{REPO}/resolve/main/{PREFIX}/{name}", params={"t": "1"}, timeout=20); return r.json().get("date", "") if r.ok else ""
+            except Exception: return ""
+        cur_latest = latest_date("latest.json"); newest = max(dates)
+        for date in dates:
+            for v, sfx in [("main", ""), ("base", "_base"), ("sr", "_sr"), ("seq", "_seq")]:
+                vf = [SIG/f"{date}{sfx}{s}" for s in (".csv", ".txt", "_pool.csv", "_meta.json")]
+                if not all(f.exists() for f in vf): continue
+                pj = build_json(date, sfx); js = json.dumps(pj, ensure_ascii=False, indent=1).encode("utf-8")
+                ops += [CommitOperationAdd(path_in_repo=f"{PREFIX}/{f.name}", path_or_fileobj=str(f)) for f in vf]
+                ops.append(CommitOperationAdd(path_in_repo=f"{PREFIX}/{date}{sfx}.json", path_or_fileobj=js))
+                if date == newest and date >= (cur_latest if sfx == "" else latest_date(f"latest{sfx}.json")):
+                    ops.append(CommitOperationAdd(path_in_repo=f"{PREFIX}/latest{sfx}.json", path_or_fileobj=js))
+            msgs.append(date)
+        if not ops: sys.exit("沒有可上傳的檔案")
+        api.create_commit(repo_id=REPO, repo_type="dataset", operations=ops, commit_message=f"signals replay {len(msgs)} days: {msgs[0]}..{msgs[-1]}")
+        print(f"已上傳 {len(ops)} 個檔案 ({len(msgs)} 天: {msgs[0]} ~ {msgs[-1]})"); return
+    date = dates[0]
     files = [SIG/f"{date}{s}" for s in (".csv", ".txt", "_pool.csv", "_meta.json")]
     missing = [f.name for f in files if not f.exists()]
     if missing: sys.exit(f"缺少檔案: {missing}")

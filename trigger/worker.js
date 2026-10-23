@@ -31,7 +31,7 @@ export default {
       let b; try { b = await req.json(); } catch { return json({ detail: "bad json" }, 400, req); }
       if (!env.API_PIN || b.pin !== env.API_PIN) return json({ detail: "PIN 錯誤" }, 401, req);
       const date = (b.date || "").trim();
-      if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) return json({ detail: "date 格式要 YYYY-MM-DD" }, 400, req);
+      if (date && !/^(\d{4}-\d{2}(-\d{2})?|\d{4}-\d{2}-\d{2}\.\.\d{4}-\d{2}-\d{2})$/.test(date)) return json({ detail: "date 格式要 YYYY-MM-DD / YYYY-MM / A..B" }, 400, req);
       const wf = WORKFLOWS[b.workflow || "signals"]; if (!wf) return json({ detail: "workflow 只能是 signals / paper" }, 400, req);
       if (Date.now() - (lastFire[wf] || 0) < 60000) return json({ detail: "60 秒內已觸發過，請稍候" }, 429, req);
       // 伺服器端防重複: GitHub 上同一 workflow 有排隊/執行中 → 不再觸發 (isolate 的 lastFire 不可靠)

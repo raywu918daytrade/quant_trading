@@ -235,7 +235,7 @@ async function autoReplayInner(d, manual){
   if(Date.now() - pend < 5*60*1000 || running){
     $("status").textContent = `${d} 沒有名單，補跑已在進行中，每 10 秒自動檢查…`; pollFor(d); return;
   }
-  $("status").textContent = `${d} 沒有名單，自動補跑中…`;
+  $("status").textContent = `${d} 沒有名單，自動補跑 ${d.slice(0,7)} 整月中…`;
   const ok = await replay(d);
   if(ok){ try{ localStorage.setItem(pendingKey(d), String(Date.now())); localStorage.setItem("replay_tried_" + d, "1"); }catch(e){} pollFor(d); }
 }
@@ -256,7 +256,7 @@ function pollFor(d){
     } }catch(e){}
     setBusy(true, `補跑中 · ${sec} 秒`);
     if(n >= 24 || gh === "GitHub 執行失敗"){ stop(); $("status").innerHTML = `${d} 補跑${gh === "GitHub 執行失敗" ? "失敗" : " 4 分鐘仍沒有名單"}，可能那天不是交易日或資料不足。<a href="https://github.com/raywu918daytrade/quant_trading/actions/workflows/daily_signals.yml" target="_blank" rel="noopener" style="color:var(--accent)">看 GitHub 執行紀錄 ↗</a>`; }
-    else $("status").textContent = `${d} 補跑中… ${gh || "等待 GitHub"} · 已等 ${sec} 秒，通常 60~90 秒，出來會自動顯示`;
+    else $("status").textContent = `${d} 補跑中… ${gh || "等待 GitHub"} · 已等 ${sec} 秒，整月約 60~90 秒，出來會自動顯示`;
   };
   check(); pollTimer = setInterval(check, 10000);
 }
@@ -267,12 +267,12 @@ async function replay(d){
   if(!pin){ pin = prompt("輸入補跑 PIN (只問一次)"); if(!pin){ $("status").textContent = `${d} 沒有名單 (已取消補跑)`; return false; } try{ localStorage.setItem("trigger_pin", pin); }catch(e){} }
   $("status").textContent = `觸發 ${d} 補跑中…`;
   try{
-    const r = await fetch(TRIGGER_URL + "/replay", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({pin, date: d, workflow: "signals"})});
+    const r = await fetch(TRIGGER_URL + "/replay", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({pin, date: d.slice(0, 7), workflow: "signals"})});   // 送整月: 一次補齊該月缺的日子 (已發布的不重算)
     const j = await r.json().catch(()=>({}));
     if(r.status === 401){ try{ localStorage.removeItem("trigger_pin"); }catch(e){} $("status").textContent = "✗ PIN 錯誤，再按一次「載入」重新輸入"; return false; }
     if(r.status === 429){ $("status").textContent = "補跑已在進行中 (60 秒內已觸發過)，自動檢查…"; return true; }
     if(!r.ok){ $("status").textContent = "✗ " + (j.detail || ("HTTP " + r.status)); return false; }
-    $("status").innerHTML = `✓ 已觸發 ${d} 的補跑，每 10 秒自動檢查，出來會直接顯示。<a href="${j.runs_url}" target="_blank" rel="noopener" style="color:var(--accent)">看執行進度 ↗</a>`;
+    $("status").innerHTML = `✓ 已觸發 ${d.slice(0,7)} 整月補跑 (缺的日子一次補齊)，每 10 秒自動檢查，出來會直接顯示。<a href="${j.runs_url}" target="_blank" rel="noopener" style="color:var(--accent)">看執行進度 ↗</a>`;
     return true;
   }catch(e){ $("status").textContent = "✗ 連不到代理，確認 Worker 網址是否正確 (可用 ?trigger= 重設)"; return false; }
 }
