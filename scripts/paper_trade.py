@@ -5,6 +5,7 @@
   登入模擬環境 (simulation=True, 永遠不會真的下單), 檢查每檔 contract.day_trade 是否可現沖券賣
   09:01:00     每檔市價「現股當沖先賣」(daytrade_short=True), 同時訂閱 tick
   盤中         tick.close >= 強制回補價 (昨收+8%) → 立即市價買回, 標記 forced
+  盤中         組合未實現損益 <= -3% (對已投入) → 全部市價買回 (portfolio_stop); 13:24 現價 >= 昨收+6% 先買回 (pre_auction)
   13:26        剩餘部位市價買回 (參與 13:30 收盤競價)
   13:35        結算: 模擬成交價 vs 真實 tick 算的 09:01~09:03 VWAP / 收盤價, 寫 paper/<date>_trades.csv, _summary.json
                --publish 時上傳 HF db/paper/ 並更新 db/paper/latest.json + summary.csv (累計)
@@ -40,6 +41,7 @@ ENTRY_T = (9, 1, 0)       # 進場時間
 VWAP_WIN = ((9, 1, 0), (9, 3, 0))   # 真實 tick 基準: 09:01~09:03 VWAP
 PRE_AUCTION_T = (13, 24, 0)   # 逐筆撮合最後一分鐘: 現價 >= 昨收*(1+PRE_AUCTION_K) 的先市價買回 (13:25~13:30 沒有 tick, +8% 規則失效)
 PRE_AUCTION_K = 0.06
+PORTFOLIO_STOP = 0.03     # 組合未實現損益 (對已投入金額) <= -3% → 全部市價回補 (stats/portfolio_stop_test.md: 最差日 -6.4% → -4.2%, 年化少 4%)
 EXIT_T = (13, 26, 0)      # 其餘部位市價回補 (參與 13:30 收盤競價)
 END_T = (13, 35, 0)
 LATE_ABORT_T = (9, 4, 0)
@@ -221,7 +223,7 @@ class Paper:
                 elif (code, "Sell") not in self.orders: st = "未進場"
                 elif not sell_px: st = "券賣未成交"
                 elif p.get("_exit_reason") == "no_fill": st = "券賣未成交"
-                elif buy_px: st = {"forced": "已強制回補", "pre_auction": "已尾盤回補"}.get(p.get("_exit_reason"), "已收盤回補")
+                elif buy_px: st = {"forced": "已強制回補", "pre_auction": "已尾盤回補", "portfolio_stop": "已組合停損"}.get(p.get("_exit_reason"), "已收盤回補")
                 elif code in self.covered: st = "回補中"
                 else: st = "持有中"
                 ref = buy_px or last
@@ -232,6 +234,18 @@ class Paper:
                              "force_cover": p.get("force_cover"), "skipped": self.skipped.get(code, "")})
         return {"date": self.date, "status": status, "updated_at": now().strftime("%Y-%m-%d %H:%M:%S"), "n_open": sum(1 for r in rows if r["status"] == "持有中"),
                 "pnl_gross": round(pnl), "pnl_pct": round(pnl / amt * 100, 3) if amt else None, "amount": round(amt), "positions": rows}
+
+    def portfolio_pnl(self):
+        """已成交空單的未實現損益 (對券賣金額), 用最後 tick; 已回補的用買回價. 回傳 (pct, amount) 或 (None, 0)."""
+        pnl = 0.0; amt = 0.0
+        with self.lock:
+            for p in self.picks:
+                code = p["stock_id"]; sell_px, q = self.avg((code, "Sell"))
+                if not sell_px: continue
+                buy_px, _ = self.avg((code, "Buy")); ref = buy_px or (self.ticks[code][-1][1] if self.ticks[code] else None)
+                if not ref: continue
+                pnl += (sell_px - ref)*1000*q; amt += sell_px*1000*q
+        return (pnl/amt if amt else None), amt
 
     def push_live(self, status):
         snap = self.live_snapshot(status)
@@ -294,6 +308,7 @@ def summarize(rows, date_str, no_trade, mode):
     pnl = sum(((r["sim_sell_px"] or 0) - (r["sim_buy_px"] or 0)) * 1000 * (r["sim_buy_lots"] or 0) for r in rows if r["sim_sell_px"] and r["sim_buy_px"])
     return {"date": date_str, "mode": mode, "no_trade": no_trade, "n_picks": len(rows), "n_filled": sum(1 for r in rows if r["sim_sell_px"]),
             "n_skipped": sum(1 for r in rows if r["skipped"]), "n_forced": sum(1 for r in rows if r["exit_reason"] == "forced"),
+            "portfolio_stop": any(r["exit_reason"] == "portfolio_stop" for r in rows), "n_pre_auction": sum(1 for r in rows if r["exit_reason"] == "pre_auction"),
             "n_touched_force": sum(1 for r in rows if r["touched_force"]), "sim_avg_net_pct": mean("sim_net_pct"), "tick_avg_net_pct": mean("tick_net_pct"),
             "sim_win_rate": (round(sum(1 for r in rows if (r["sim_net_pct"] or 0) > 0) / max(1, sum(1 for r in rows if r["sim_net_pct"] is not None)), 3)
                              if any(r["sim_net_pct"] is not None for r in rows) else None),
@@ -375,9 +390,14 @@ def main():
     pt.enter()
     time.sleep(5); pt.refresh_deals_from_status(); snap = pt.push_live("running")
     log(f"進場完成 (持有 {snap['n_open']} 檔), 盯盤到 13:26, 每 {LIVE_EVERY//60} 分鐘更新 live.json ...")
-    t_exit = at(*EXIT_T); t_pre = at(*PRE_AUCTION_T); last_hb = now(); pre_done = False
+    t_exit = at(*EXIT_T); t_pre = at(*PRE_AUCTION_T); last_hb = now(); pre_done = False; pstop_done = False; last_pchk = now()
     while now() < t_exit:
         time.sleep(1)
+        if not pstop_done and (now() - last_pchk).total_seconds() >= 5:   # 組合停損: 每 5 秒檢查
+            last_pchk = now(); pct, amt = pt.portfolio_pnl()
+            if pct is not None and pct <= -PORTFOLIO_STOP:
+                pstop_done = True; log(f"⚠ 組合停損: 未實現 {pct*100:.2f}% <= -{PORTFOLIO_STOP*100:.0f}% (投入 {amt:,.0f}) → 全部市價回補")
+                pt.refresh_deals_from_status(); pt.cover_all("portfolio_stop"); pt.push_live("running")
         if not pre_done and now() >= t_pre:
             pre_done = True; pt.refresh_deals_from_status(); n = 0
             for p in picks:

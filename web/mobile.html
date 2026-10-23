@@ -150,14 +150,14 @@ async function loadPaper(date){
     $("paperCards").innerHTML = [
       ["成交 / 名單", `${s.n_filled} / ${s.n_picks}`], ["模擬平均淨報酬", pct(s.sim_avg_net_pct)],
       ["真實tick平均淨報酬", pct(s.tick_avg_net_pct)], ["勝率", s.sim_win_rate==null ? "–" : Math.round(s.sim_win_rate*100)+"%"],
-      ["強制回補 / 觸及", `${s.n_forced} / ${s.n_touched_force}`], ["模擬淨損益", s.sim_pnl_net==null ? "–" : money(s.sim_pnl_net)+" 元"]
+      ["強制回補 / 觸及" + (s.portfolio_stop ? " · 組合停損" : ""), `${s.n_forced} / ${s.n_touched_force}`], ["模擬淨損益", s.sim_pnl_net==null ? "–" : money(s.sim_pnl_net)+" 元"]
     ].map(([k,v]) => `<div class="card"><div class="k">${k}</div><div class="v ${/^[+-]/.test(v) ? (v.startsWith("+")?"pos":"neg") : ""}">${v}</div></div>`).join("");
     try{
       const t = await fetch(PAPER + `${s.date}_trades.csv?t=` + Date.now(), {cache:"no-store"}); const txt = await t.text();
       const [head, ...lines] = txt.trim().split(/\r?\n/); const H = head.split(",");
       const rows = lines.filter(Boolean).map(l => { const cells = l.split(","); const o = {}; H.forEach((h,i)=>o[h]=cells[i]); return o; });
       if(rows.length && rows[0].stock_id){
-        $("paperBody").innerHTML = rows.map(r => `<tr><td>${r.stock_id}</td><td>${r.name||""}</td><td>${r.sim_sell_px||"–"}</td><td>${r.sim_buy_px||"–"}</td><td>${r.exit_reason==="forced"?"強制":r.exit_reason==="pre_auction"?"尾盤":r.exit_reason==="close"?"收盤":"–"}</td><td class="${(+r.sim_net_pct)>0?"pos":"neg"}">${r.sim_net_pct||"–"}</td><td>${r.tick_net_pct||"–"}</td></tr>`).join("");
+        $("paperBody").innerHTML = rows.map(r => `<tr><td>${r.stock_id}</td><td>${r.name||""}</td><td>${r.sim_sell_px||"–"}</td><td>${r.sim_buy_px||"–"}</td><td>${r.exit_reason==="forced"?"強制":r.exit_reason==="pre_auction"?"尾盤":r.exit_reason==="portfolio_stop"?"組合停損":r.exit_reason==="close"?"收盤":"–"}</td><td class="${(+r.sim_net_pct)>0?"pos":"neg"}">${r.sim_net_pct||"–"}</td><td>${r.tick_net_pct||"–"}</td></tr>`).join("");
         $("paperDetails").style.display = "";
       } else $("paperDetails").style.display = "none";
     }catch(e){ $("paperDetails").style.display = "none"; }
