@@ -62,7 +62,8 @@ details summary{cursor:pointer;color:var(--accent);font-size:14px}
   <h2 style="margin-top:18px">交易紀錄 <small id="histMeta" class="muted"></small></h2>
   <div class="cards" id="histCards"><div class="card" style="grid-column:1/-1"><div class="k">尚無紀錄</div></div></div>
   <div class="wrap"><table><thead><tr><th>日期</th><th>檔</th><th>勝</th><th>損益元</th><th>%</th></tr></thead><tbody id="histBody"></tbody></table></div>
-  <div id="histDetail" style="display:none;margin-top:8px"><div class="muted" id="histDetailTitle" style="margin-bottom:4px"></div><div class="wrap"><table><thead><tr><th>代號</th><th>名稱</th><th>張</th><th>進場</th><th>出場</th><th>方式</th><th>淨%</th><th>損益</th></tr></thead><tbody id="histDetailBody"></tbody></table></div></div>
+  <div id="histDetail" style="display:none;margin-top:8px"><div class="muted" id="histDetailTitle" style="margin-bottom:4px"></div><div class="wrap"><table><thead><tr><th>代號</th><th>名稱</th><th>張</th><th>進場</th><th>出場</th><th>方式</th><th>淨%</th><th>損益</th></tr></thead><tbody id="histDetailBody"></tbody></table></div>
+    <div id="histK" style="display:none;margin-top:8px"><div class="muted" id="histKTitle" style="font-size:12px;margin-bottom:2px"></div><canvas width="640" height="220" style="width:100%;height:auto;display:block"></canvas><div class="muted" style="font-size:11px;margin-top:2px">5 分 K · 灰點線昨收 · 藍線進場 · 白虛線出場 · 橘虛線 +8%</div></div></div>
   <details style="margin-top:6px"><summary class="muted" style="font-size:12px">說明</summary><p class="muted" style="margin:6px 0 0">依當天發布的名單用日線結算 (進場開盤價、觸 +8% 以強制價出、否則收盤價、成本 0.23%)，每天 09:01 自動追加，換模型也接續記錄 (model 欄位可區分)。補跑: 選日期按「載入」，平日且非未來日期沒有名單時自動觸發補跑 (需 PIN，問一次)，每 10 秒自動檢查、出來直接顯示。每個日期只自動補跑一次；5 分鐘內或 GitHub 執行中不重複觸發；之後重整只顯示手動連結。</p></details>
   <details style="margin-top:14px"><summary>表格檢視</summary>
     <div class="wrap"><table><thead><tr><th>代號</th><th>名稱</th><th>開盤</th><th>張數</th><th>金額</th><th>強制回補</th><th>漲停</th></tr></thead><tbody id="tbody"></tbody></table></div>
@@ -216,14 +217,14 @@ function drawK(cv, bars, p){
   const ctx = cv.getContext("2d"), W = cv.width, H = cv.height, padL = 46, padR = 8, padT = 8, padB = 22;
   const dark = matchMedia("(prefers-color-scheme: dark)").matches; const fg = dark ? "#e6e8ee" : "#1c1f26", mut = dark ? "#9aa3b2" : "#6b7280", grid = dark ? "#2a2f3a" : "#e5e7eb";
   ctx.clearRect(0,0,W,H);
-  const lines = [p.prev_close, p.force_cover, p.open].filter(x => x != null);
+  const lines = [p.prev_close, p.force_cover, p.open, p.exit].filter(x => x != null && !isNaN(x));
   let lo = Math.min(...bars.map(b => b[3]), ...lines), hi = Math.max(...bars.map(b => b[2]), ...lines); const pad = (hi-lo)*0.06 || 1; lo -= pad; hi += pad;
   const x = t => padL + (t/270)*(W-padL-padR), y = v => padT + (1-(v-lo)/(hi-lo))*(H-padT-padB);
   ctx.strokeStyle = grid; ctx.lineWidth = 1; ctx.font = "11px -apple-system,system-ui,sans-serif"; ctx.fillStyle = mut;
   [0,60,120,180,240,270].forEach((t,i) => { ctx.beginPath(); ctx.moveTo(x(t), padT); ctx.lineTo(x(t), H-padB); ctx.stroke(); ctx.fillText(["09:00","10:00","11:00","12:00","13:00","13:30"][i], x(t)-16, H-6); });
   for(let i=0;i<=4;i++){ const v = lo + (hi-lo)*i/4; ctx.beginPath(); ctx.moveTo(padL, y(v)); ctx.lineTo(W-padR, y(v)); ctx.stroke(); ctx.fillText(v.toFixed(1), 2, y(v)+4); }
   const ref = (v, color, dash) => { if(v==null) return; ctx.save(); ctx.strokeStyle = color; ctx.setLineDash(dash); ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(padL, y(v)); ctx.lineTo(W-padR, y(v)); ctx.stroke(); ctx.restore(); };
-  ref(p.prev_close, mut, [2,3]); ref(p.force_cover, "#f59e0b", [6,4]); ref(p.open, "#60a5fa", []);
+  ref(p.prev_close, mut, [2,3]); ref(p.force_cover, "#f59e0b", [6,4]); ref(p.open, "#60a5fa", []); if(p.exit) ref(p.exit, fg, [3,3]);
   const bw = Math.max(2, (W-padL-padR)/55*0.6);
   bars.forEach(b => { const [t,o,h,l,c] = b; const up = c >= o; ctx.strokeStyle = ctx.fillStyle = up ? "#ef4444" : "#22c55e"; const cx = x(t+2.5);
     ctx.beginPath(); ctx.moveTo(cx, y(h)); ctx.lineTo(cx, y(l)); ctx.stroke(); const top = y(Math.max(o,c)), hgt = Math.max(1, Math.abs(y(o)-y(c))); ctx.fillRect(cx-bw/2, top, bw, hgt); });
@@ -248,8 +249,20 @@ async function loadHistory(){
 function showHistDay(d){
   const rows = HIST.filter(r => r.date === d); if(!rows.length){ $("histDetail").style.display = "none"; return; }
   $("histDetailTitle").textContent = d + " 各檔 (點日期列切換)";
-  $("histDetailBody").innerHTML = rows.map(r => `<tr><td><a href="https://tw.stock.yahoo.com/quote/${r.stock_id}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none">${r.stock_id}</a></td><td>${r.name||""}</td><td>${r.lots}</td><td>${fmt(+r.entry)}</td><td>${fmt(+r.exit)}</td><td>${({forced:"強制",close:"收盤",lock:"鎖漲停",lock_pending:"鎖漲停*"})[r.exit_reason]||r.exit_reason}</td><td class="${pctCls(+r.net_pct)}">${(+r.net_pct>0?"+":"")+fmt(+r.net_pct)}</td><td class="${pctCls(+r.pnl)}">${money(+r.pnl)}</td></tr>`).join("");
+  $("histK").style.display = "none";
+  $("histDetailBody").innerHTML = rows.map(r => `<tr><td><a href="#" class="hk" data-sid="${r.stock_id}" data-d="${d}" style="color:var(--accent);text-decoration:none">${r.stock_id} ▾</a></td><td>${r.name||""}</td><td>${r.lots}</td><td>${fmt(+r.entry)}</td><td>${fmt(+r.exit)}</td><td>${({forced:"強制",close:"收盤",lock:"鎖漲停",lock_pending:"鎖漲停*"})[r.exit_reason]||r.exit_reason}</td><td class="${pctCls(+r.net_pct)}">${(+r.net_pct>0?"+":"")+fmt(+r.net_pct)}</td><td class="${pctCls(+r.pnl)}">${money(+r.pnl)}</td></tr>`).join("");
   $("histDetail").style.display = "";
+  document.querySelectorAll("#histDetailBody .hk").forEach(a => a.onclick = async ev => { ev.preventDefault(); await showHistK(a.dataset.d, a.dataset.sid); });
+}
+let HBARS = {}, HBARS_DATE = null;
+async function showHistK(d, sid){
+  const r0 = HIST.find(x => x.date === d && x.stock_id === sid); if(!r0) return;
+  $("histKTitle").textContent = `${d} ${sid} ${r0.name||""} 載入中…`; $("histK").style.display = "";
+  if(HBARS_DATE !== d){ try{ const r = await fetch(BASE + `bars/${d}.json?t=` + Date.now(), {cache:"no-store"}); if(!r.ok) throw 0; HBARS = (await r.json()).bars; HBARS_DATE = d; }catch(e){ $("histKTitle").textContent = `${d} 尚無分K (隔天補)`; return; } }
+  const bars = HBARS[sid]; if(!bars){ $("histKTitle").textContent = `${d} ${sid} 無分K資料`; return; }
+  $("histKTitle").textContent = `${d} ${sid} ${r0.name||""} · 進場 ${fmt(+r0.entry)} → 出場 ${fmt(+r0.exit)} (${({forced:"強制",close:"收盤",lock:"鎖漲停"})[r0.exit_reason]||r0.exit_reason}) 淨 ${(+r0.net_pct>0?"+":"")+fmt(+r0.net_pct)}%`;
+  drawK($("histK").querySelector("canvas"), bars, {prev_close: +r0.prev_close, force_cover: +r0.prev_close*1.08, open: +r0.entry, exit: +r0.exit});
+  $("histK").scrollIntoView({block:"center", behavior:"smooth"});
 }
 let TRIGGER_URL = "https://quant-trigger.raywu918daytrade.workers.dev";   // Cloudflare Worker (trigger/worker.js); 可用 ?trigger=https://... 覆寫
 try{ TRIGGER_URL = qs.get("trigger") || localStorage.getItem("trigger_url") || TRIGGER_URL; if(qs.get("trigger")) localStorage.setItem("trigger_url", qs.get("trigger")); }catch(e){}
