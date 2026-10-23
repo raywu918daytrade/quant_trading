@@ -63,7 +63,7 @@ details summary{cursor:pointer;color:var(--accent);font-size:14px}
   <div class="cards" id="histCards"><div class="card" style="grid-column:1/-1"><div class="k">尚無紀錄</div></div></div>
   <div class="wrap"><table><thead><tr><th>日期</th><th>檔</th><th>勝</th><th>損益元</th><th>%</th></tr></thead><tbody id="histBody"></tbody></table></div>
   <div id="histDetail" style="display:none;margin-top:8px"><div class="muted" id="histDetailTitle" style="margin-bottom:4px"></div><div class="wrap"><table><thead><tr><th>代號</th><th>名稱</th><th>張</th><th>進場</th><th>出場</th><th>方式</th><th>淨%</th><th>損益</th></tr></thead><tbody id="histDetailBody"></tbody></table></div></div>
-  <p class="muted" style="margin-top:6px">依當天發布的名單用日線結算 (進場開盤價、觸 +8% 以強制價出、否則收盤價、成本 0.23%)，每天 09:01 自動追加，換模型也接續記錄 (model 欄位可區分)。補跑: 選日期按「載入」，平日且非未來日期沒有名單時自動觸發補跑 (需 PIN，問一次)，每 10 秒自動檢查、出來直接顯示；5 分鐘內或 GitHub 執行中不會重複觸發。</p>
+  <p class="muted" style="margin-top:6px">依當天發布的名單用日線結算 (進場開盤價、觸 +8% 以強制價出、否則收盤價、成本 0.23%)，每天 09:01 自動追加，換模型也接續記錄 (model 欄位可區分)。補跑: 選日期按「載入」，平日且非未來日期沒有名單時自動觸發補跑 (需 PIN，問一次)，每 10 秒自動檢查、出來直接顯示。每個日期只自動補跑一次；5 分鐘內或 GitHub 執行中不重複觸發；之後重整只顯示手動連結。</p>
   <details style="margin-top:14px"><summary>表格檢視</summary>
     <div class="wrap"><table><thead><tr><th>代號</th><th>名稱</th><th>開盤</th><th>張數</th><th>金額</th><th>強制回補</th><th>漲停</th></tr></thead><tbody id="tbody"></tbody></table></div>
   </details>
@@ -98,8 +98,10 @@ async function load(date){
     $("banner").className="banner stop"; $("banner").textContent="讀取失敗: " + e.message; $("status").textContent = "✗ " + e.message;
     if(date && /沒有名單/.test(e.message)){
       const dow = new Date(date + "T00:00:00").getDay(); const today = new Date().toISOString().slice(0,10);
-      if(dow >= 1 && dow <= 5 && date <= today){ autoReplay(date); }
-      else { const a = document.createElement("a"); a.href = "#"; a.textContent = " 補跑這天 ↻"; a.style.color = "var(--accent)"; a.onclick = ev => { ev.preventDefault(); replay(date); }; $("status").appendChild(a); }
+      let tried = false; try{ tried = !!localStorage.getItem("replay_tried_" + date); }catch(e){}
+      let pend = 0; try{ pend = +localStorage.getItem(pendingKey(date)) || 0; }catch(e){}
+      if(dow >= 1 && dow <= 5 && date <= today && (!tried || Date.now() - pend < 5*60*1000)){ autoReplay(date); }
+      else { const a = document.createElement("a"); a.href = "#"; a.textContent = tried ? " 已補跑過仍沒有名單 (可能非交易日)，再補跑一次 ↻" : " 補跑這天 ↻"; a.style.color = "var(--accent)"; a.onclick = ev => { ev.preventDefault(); autoReplay(date, true); }; $("status").appendChild(a); }
     }
     return;
   }
@@ -221,11 +223,11 @@ let TRIGGER_URL = "https://quant-trigger.raywu918daytrade.workers.dev";   // Clo
 try{ TRIGGER_URL = qs.get("trigger") || localStorage.getItem("trigger_url") || TRIGGER_URL; if(qs.get("trigger")) localStorage.setItem("trigger_url", qs.get("trigger")); }catch(e){}
 let pollTimer = null, replayInFlight = false;
 function pendingKey(d){ return "replay_pending_" + d; }
-async function autoReplay(d){
+async function autoReplay(d, manual){
   if(replayInFlight){ $("status").textContent = `${d} 補跑請求處理中，請稍候…`; return; }   // 連按載入不會重複送
-  replayInFlight = true; try { await autoReplayInner(d); } finally { replayInFlight = false; }
+  replayInFlight = true; try { await autoReplayInner(d, manual); } finally { replayInFlight = false; }
 }
-async function autoReplayInner(d){
+async function autoReplayInner(d, manual){
   // 防重複: 5 分鐘內已觸發過 → 只輪詢; GitHub 有排隊/執行中 → 只輪詢
   let pend = 0; try{ pend = +localStorage.getItem(pendingKey(d)) || 0; }catch(e){}
   let running = false;
@@ -235,7 +237,7 @@ async function autoReplayInner(d){
   }
   $("status").textContent = `${d} 沒有名單，自動補跑中…`;
   const ok = await replay(d);
-  if(ok){ try{ localStorage.setItem(pendingKey(d), String(Date.now())); }catch(e){} pollFor(d); }
+  if(ok){ try{ localStorage.setItem(pendingKey(d), String(Date.now())); localStorage.setItem("replay_tried_" + d, "1"); }catch(e){} pollFor(d); }
 }
 function setBusy(on, label){
   ["btnDate","btnLatest","btnReload"].forEach(id => { $(id).disabled = on; });
