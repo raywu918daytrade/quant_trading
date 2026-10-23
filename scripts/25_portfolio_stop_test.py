@@ -69,7 +69,7 @@ if __name__ == "__main__":
     P(pd.DataFrame(rows).set_index("門檻").round(3).to_markdown()); P("")
     # 模擬停損規則
     P("## 3. 套用組合停損後的績效")
-    rows = []
+    rows = []; daily = {"現行": br}
     def stats(s, label):
         mo = s.groupby(s.index.to_period("M")).apply(lambda x:((1+x).prod()-1)*100)
         return {"規則": label, "日淨%": s.mean()*100, "Sharpe": s.mean()/s.std()*np.sqrt(245), "MDD%": ((1+s).cumprod()/(1+s).cumprod().cummax()-1).min()*100, "最差日%": s.min()*100, "最差月%": mo.min(), "負月比例": (mo<0).mean(), "年化(萬)": s.mean()*245*CAP/1e4}
@@ -88,6 +88,16 @@ if __name__ == "__main__":
                 g = (entry/(px*(1+SLIP)) - 1) if px else gb
                 tot += a*(g-BASE)
             ret[day] = tot/CAP
-        s = pd.Series(ret); r = stats(s, f"組合浮虧 −{X*100:.1f}% 全部回補"); r["觸發天數"] = n_trig; rows.append(r)
+        s = pd.Series(ret); r = stats(s, f"組合浮虧 −{X*100:.1f}% 全部回補"); r["觸發天數"] = n_trig; rows.append(r); daily[f"stop{X*100:g}"] = s
     P(pd.DataFrame(rows).set_index("規則").round(3).to_markdown())
+    # 存每日序列 + 當天大盤日內 (流動股 開→收 平均, 由 D1 算) 供 27 對比
+    D = pd.DataFrame(daily); D["intra_mdd"] = mi
+    import glob as _g
+    sys.path.insert(0, str(ROOT/"scripts")); import features as F
+    d1 = pd.concat([pd.read_parquet(f) for f in sorted(_g.glob(str(ROOT/"data/raw/d1/*.parquet")))], ignore_index=True); d1["date"] = pd.to_datetime(d1.date)
+    d1 = d1.drop_duplicates(["stock_id","date"]).sort_values(["stock_id","date"]).reset_index(drop=True)
+    d1 = d1.merge(pd.read_parquet(ROOT/"data/raw/meta/info.parquet")[["stock_id","market_type"]], on="stock_id", how="left")
+    fb = F.build_B(F.d1_base(d1)); liq = fb[(fb.dv20>=1e8)&fb.market_type.isin(["twse","tpex"])]
+    mk = liq.groupby("date").agg(mkt_intra=("y_intra","mean"), mkt_gap=("gap","mean"), mkt_up=("y_intra", lambda s:(s>0).mean()))
+    D = D.join(mk, how="left"); D.to_csv(ROOT/"data/processed"/f"portfolio_stop_daily{TAG}.csv")
     (OUT/f"portfolio_stop_test{TAG}.md").write_text("\n".join(L)); print("\n".join(L))
