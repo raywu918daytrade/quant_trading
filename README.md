@@ -274,7 +274,7 @@ D1 抓到 2018 (2018~2019 只當訓練)、M1 抓到 2020，池版模型 B 按季
 ## 正式 = 基準+支撐壓力，影子 = 基準 (2026-10-23 定案) — 角色在 `scripts/config.py`
 - `MAIN_VARIANT = "sr"` (基準 33 + `features.SR_FEATS` 13 個支撐壓力特徵, `models/lgbm_Bsr_pool_<季>.txt`, D1 從 2018 起訓練)；`SHADOW_VARIANT = "base"` (原本的 33 特徵模型 `lgbm_B_pool_<季>.txt`)。要對調只改這兩行、workflow 矩陣與 `web/mobile.html` 的 `SHADOW` 常數。
 - 正式產出不帶後綴 (`signals/<date>.*`, `db/signals/latest.json`, `paper/`, `db/paper/`)；影子帶 `_base` (`latest_base.json`, `paper_base/`, `db/paper_base/`)。
-- 名單: `daily_candidates.py` (預設 = 正式變體) → `daily_candidates.py --variant base --open-csv signals/<date>_opens.csv` (同一份開盤價)；`publish_signals.py` 兩份一起上傳。模擬: `paper_trade.yml` 矩陣 `[sr, base]`，同一模擬帳戶、委託帶 `custom_field` 區分。
+- 名單: `daily_candidates.py --variant all` 一次算正式+影子 (特徵只算一次、開盤價只抓一次, 約 10 秒)；`publish_signals.py` 兩份一起上傳。單獨跑: `--variant sr` / `--variant base`。模擬: `paper_trade.yml` 矩陣 `[sr, base]`，同一模擬帳戶、委託帶 `custom_field` 區分。
 - 手機頁三段切換: 正式：支撐壓力 / 影子：基準 / 對照。
 - 每季初重訓: `07_train.py B pool` (基準) 與 `22_train_seq_model.py sr <季>` (正式) 都要跑。K 線序列變體 `seq` 程式保留 (`22_train_seq_model.py seq`) 但不排程。
 - 依據 `stats/sr_feature_test.md`: 加支撐壓力後每筆 0.52→0.57% (七年皆升)、Sharpe 3.44→3.84、MDD 不變、IC 差 t=3.07。注意正式模型訓練資料較長 (2018 起) 而影子基準只用 2023-10 起三年，對照含此差異。一個月後若基準反而較好就對調回來。

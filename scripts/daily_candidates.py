@@ -78,7 +78,7 @@ def main():
     ap.add_argument("--max-per-stock", type=float, default=600_000); ap.add_argument("--max-price", type=float, default=MAX_PRICE)
     ap.add_argument("--max-n", type=int, default=10); ap.add_argument("--min-amount", type=float, default=100_000, help="單檔金額低於此不做 (避免零頭部位)")
     ap.add_argument("--no-daytrade-filter", action="store_true", help="不過濾現股當沖先賣後買資格 (對照用)")
-    ap.add_argument("--variant", default=CFG.MAIN_VARIANT, choices=CFG.VARIANTS, help=f"模型變體 (base=基準33特徵, sr=基準+支撐壓力, seq=基準+K線序列). 正式={CFG.MAIN_VARIANT} 輸出不帶後綴, 其他輸出檔名加 _<variant>")
+    ap.add_argument("--variant", default=CFG.MAIN_VARIANT, choices=CFG.VARIANTS + ["all"], help=f"模型變體 (base=基準33特徵, sr=基準+支撐壓力, seq=基準+K線序列; all=正式+影子一次算). 正式={CFG.MAIN_VARIANT} 輸出不帶後綴, 其他輸出檔名加 _<variant>")
     a = ap.parse_args()
     if a.refresh: refresh_d1(a.months)
 
@@ -123,13 +123,17 @@ def main():
         d1 = pd.concat([d1, today], ignore_index=True)
 
     base_df = F.d1_base(d1); f = F.build_B(base_df)
-    FEATS = F.D1_FEATS
-    if a.variant == "seq": f = f.merge(F.build_seq(base_df), on=["stock_id","date"], how="left")
-    FEATS = F.D1_FEATS + F.shadow_feats(a.variant)
-    sfx = CFG.suffix(a.variant)
-    t = f[f.date == tdate].copy()
-    if len(t) == 0: sys.exit("目標日沒有任何資料")
-    t = t.merge(d1[d1.date == tdate][["stock_id","name"]].drop_duplicates("stock_id"), on="stock_id", how="left")
+    variants = [CFG.MAIN_VARIANT, CFG.SHADOW_VARIANT] if a.variant == "all" else [a.variant]
+    if "seq" in variants: f = f.merge(F.build_seq(base_df), on=["stock_id","date"], how="left")
+    t_all = f[f.date == tdate].copy()
+    if len(t_all) == 0: sys.exit("目標日沒有任何資料")
+    t_all = t_all.merge(d1[d1.date == tdate][["stock_id","name"]].drop_duplicates("stock_id"), on="stock_id", how="left")
+    for a.variant in variants:   # 特徵只算一次, 各變體各自評分/配置/輸出
+      FEATS = F.D1_FEATS + F.shadow_feats(a.variant); sfx = CFG.suffix(a.variant); t = t_all.copy()
+      run_variant(a, t, d1, base_df, tdate, source, FEATS, sfx)
+
+def run_variant(a, t, d1, base_df, tdate, source, FEATS, sfx):
+    import lightgbm as lgb
     mkt_gap = t.mkt_gap.iloc[0]
     dow = tdate.dayofweek
 
@@ -138,7 +142,6 @@ def main():
     if a.variant == "sr":   # 支撐壓力特徵只對池內股票算 (回看 60 天), 省時間
         sr = F.build_sr(base_df, pool.stock_id.unique()); sr = sr[sr.date == tdate]
         pool = pool.merge(sr, on=["stock_id","date"], how="left")
-    import lightgbm as lgb
     mpath = latest_model(a.variant); model = lgb.Booster(model_file=mpath)
     pool["pred"] = model.predict(pool[FEATS])
     pool = pool.sort_values("pred")

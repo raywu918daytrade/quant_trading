@@ -37,21 +37,16 @@ jobs:
           from daily_candidates import refresh_d1
           refresh_d1(int(sys.argv[1]))
           PY
-      - name: Generate today's candidates (fetch opens from TWSE MIS)
+      - name: Generate candidates, main + shadow in one pass (fetch opens from TWSE MIS once)
         run: |
           D="${{ github.event.inputs.date }}"
-          if [ -n "$D" ]; then python3 scripts/daily_candidates.py --date "$D"; else python3 scripts/daily_candidates.py; fi
-      - name: Shadow model (base) candidates, same opens
-        run: |
-          D="${{ github.event.inputs.date }}"
-          if [ -n "$D" ]; then python3 scripts/daily_candidates.py --date "$D" --variant base
-          else T=$(TZ=Asia/Taipei date +%F); python3 scripts/daily_candidates.py --variant base --open-csv "signals/${T}_opens.csv"; fi
+          if [ -n "$D" ]; then python3 scripts/daily_candidates.py --date "$D" --variant all; else python3 scripts/daily_candidates.py --variant all; fi
       - name: Publish to HF db/signals
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: python3 scripts/publish_signals.py
       - name: Settle previously published lists with latest D1 (history.csv, forward-only)
-        if: always()
+        if: always() && github.event.inputs.date == ''      # 補跑 (指定 date) 時跳過, 隔天 09:01 會自動補結算
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
