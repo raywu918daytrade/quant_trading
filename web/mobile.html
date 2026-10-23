@@ -24,7 +24,7 @@ h1{font-size:17px;margin:0}main{padding:12px 16px 32px;max-width:720px;margin:0 
 .wrap{overflow-x:auto;margin-top:16px}table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden;font-size:13px}
 th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}th{color:var(--muted);font-weight:600;background:var(--card)}
 td:first-child,th:first-child,td:nth-child(2),th:nth-child(2){text-align:left}
-.muted{color:var(--muted);font-size:12px}button{background:var(--accent);color:#fff;border:0;border-radius:8px;padding:7px 12px;font-weight:600;font-size:14px}
+.muted{color:var(--muted);font-size:12px}button{background:var(--accent);color:#fff;border:0;border-radius:8px;padding:7px 12px;font-weight:600;font-size:14px}button:disabled{opacity:.5;cursor:default}
 input[type=date]{background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:14px}
 .seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;margin-bottom:10px}.seg button{flex:1;background:transparent;color:var(--muted);border:0;border-radius:0;padding:7px 4px;font-size:13px}.seg button.on{background:color-mix(in srgb,var(--accent) 18%,transparent);color:var(--accent)}
 .datebar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}.datebar .sec{background:transparent;color:var(--accent);border:1px solid var(--accent)}.datebar .muted{flex-basis:100%}
@@ -103,7 +103,7 @@ async function load(date){
     }
     return;
   }
-  render(j);
+  render(j); setBusy(false);
   $("status").textContent = `✓ 已載入 ${j.date} 的名單` + (date ? "" : " (最新)");
   window.scrollTo({top:0, behavior:"smooth"});
 }
@@ -237,12 +237,20 @@ async function autoReplayInner(d){
   const ok = await replay(d);
   if(ok){ try{ localStorage.setItem(pendingKey(d), String(Date.now())); }catch(e){} pollFor(d); }
 }
+function setBusy(on, label){
+  ["btnDate","btnLatest","btnReload"].forEach(id => { $(id).disabled = on; });
+  $("btnDate").textContent = on ? label : "載入";
+}
 function pollFor(d){
-  if(pollTimer) clearInterval(pollTimer); let n = 0;
+  if(pollTimer) clearInterval(pollTimer); let n = 0; const t0 = Date.now(); setBusy(true, "補跑中…");
+  const stop = () => { clearInterval(pollTimer); pollTimer = null; setBusy(false); };
   const check = async () => {
-    n++; try{ const r = await fetch(BASE + sigName(d, VARIANT === "cmp" ? "main" : VARIANT) + "?t=" + Date.now(), {cache:"no-store"}); if(r.ok){ clearInterval(pollTimer); pollTimer = null; try{ localStorage.removeItem(pendingKey(d)); }catch(e){} load(d); return; } }catch(e){}
-    if(n >= 24){ clearInterval(pollTimer); pollTimer = null; $("status").innerHTML = `${d} 補跑 4 分鐘仍沒有名單，可能那天不是交易日或執行失敗。<a href="https://github.com/raywu918daytrade/quant_trading/actions/workflows/daily_signals.yml" target="_blank" rel="noopener" style="color:var(--accent)">看 GitHub 執行紀錄 ↗</a>`; }
-    else $("status").textContent = `${d} 補跑中… 已等 ${n*10} 秒 (最多 4 分鐘)`;
+    n++; const sec = Math.round((Date.now() - t0)/1000);
+    try{ const r = await fetch(BASE + sigName(d, VARIANT === "cmp" ? "main" : VARIANT) + "?t=" + Date.now(), {cache:"no-store"}); if(r.ok){ stop(); try{ localStorage.removeItem(pendingKey(d)); }catch(e){} load(d); return; } }catch(e){}
+    let gh = ""; try{ const rr = await fetch(TRIGGER_URL + "/runs?n=1", {cache:"no-store"}); if(rr.ok){ const x = (await rr.json())[0]; if(x) gh = ({queued:"GitHub 排隊中", in_progress:"GitHub 執行中", completed: x.conclusion === "success" ? "GitHub 已完成，等 HF 同步" : "GitHub 執行失敗"})[x.status] || x.status; } }catch(e){}
+    setBusy(true, `補跑中 · ${sec} 秒`);
+    if(n >= 24 || gh === "GitHub 執行失敗"){ stop(); $("status").innerHTML = `${d} 補跑${gh === "GitHub 執行失敗" ? "失敗" : " 4 分鐘仍沒有名單"}，可能那天不是交易日或資料不足。<a href="https://github.com/raywu918daytrade/quant_trading/actions/workflows/daily_signals.yml" target="_blank" rel="noopener" style="color:var(--accent)">看 GitHub 執行紀錄 ↗</a>`; }
+    else $("status").textContent = `${d} 補跑中… ${gh || "等待 GitHub"} · 已等 ${sec} 秒，通常 60~90 秒，出來會自動顯示`;
   };
   check(); pollTimer = setInterval(check, 10000);
 }
