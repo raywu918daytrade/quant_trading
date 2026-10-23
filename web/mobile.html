@@ -31,7 +31,7 @@ input[type=date]{background:var(--card);color:var(--fg);border:1px solid var(--l
 h2{font-size:15px;margin:18px 0 8px}footer{color:var(--muted);font-size:12px;padding:16px;text-align:center;line-height:1.7}
 details summary{cursor:pointer;color:var(--accent);font-size:14px}
 </style></head><body>
-<header><h1>當沖做空名單</h1><button id="btnReload">重新整理</button></header>
+<header><h1>當沖做空名單</h1></header>
 <main>
   <div class="datebar"><input type="date" id="dateIn"><button id="btnDate">載入</button><button id="btnLatest" class="sec">回最新</button><span id="status" class="muted"></span></div>
   <div class="seg" id="seg"><button data-v="main" class="on">正式：支撐壓力</button><button data-v="base">影子：基準</button><button data-v="cmp">對照</button></div>
@@ -240,7 +240,7 @@ async function autoReplayInner(d, manual){
   if(ok){ try{ localStorage.setItem(pendingKey(d), String(Date.now())); localStorage.setItem("replay_tried_" + d, "1"); }catch(e){} pollFor(d); }
 }
 function setBusy(on, label){
-  ["btnDate","btnLatest","btnReload"].forEach(id => { $(id).disabled = on; });
+  ["btnDate","btnLatest"].forEach(id => { $(id).disabled = on; });
   $("btnDate").textContent = on ? label : "載入";
 }
 function pollFor(d){
@@ -276,7 +276,6 @@ async function replay(d){
     return true;
   }catch(e){ $("status").textContent = "✗ 連不到代理，確認 Worker 網址是否正確 (可用 ?trigger= 重設)"; return false; }
 }
-$("btnReload").onclick = () => load($("dateIn").value && $("dateIn").value !== lastLatest ? $("dateIn").value : null);
 $("btnDate").onclick = () => load($("dateIn").value || null);
 $("btnLatest").onclick = () => load(null);
 let lastLatest = null;
