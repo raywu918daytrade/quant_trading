@@ -209,7 +209,7 @@ function showHistDay(d){
   $("histDetailBody").innerHTML = rows.map(r => `<tr><td>${r.stock_id}</td><td>${r.name||""}</td><td>${r.lots}</td><td>${fmt(+r.entry)}</td><td>${fmt(+r.exit)}</td><td>${({forced:"強制",close:"收盤",lock:"鎖漲停",lock_pending:"鎖漲停*"})[r.exit_reason]||r.exit_reason}</td><td class="${pctCls(+r.net_pct)}">${(+r.net_pct>0?"+":"")+fmt(+r.net_pct)}</td><td class="${pctCls(+r.pnl)}">${money(+r.pnl)}</td></tr>`).join("");
   $("histDetail").style.display = "";
 }
-let TRIGGER_URL = "";   // Cloudflare Worker (trigger/worker.js) 的網址; 空的話第一次按會問並記在瀏覽器, 也可用 ?trigger=https://... 設定
+let TRIGGER_URL = "https://quant-trigger.raywu918daytrade.workers.dev";   // Cloudflare Worker (trigger/worker.js); 可用 ?trigger=https://... 覆寫
 try{ TRIGGER_URL = qs.get("trigger") || localStorage.getItem("trigger_url") || TRIGGER_URL; if(qs.get("trigger")) localStorage.setItem("trigger_url", qs.get("trigger")); }catch(e){}
 $("btnReplay").onclick = async () => {
   const d = $("dateIn").value; if(!d){ $("status").textContent = "先選日期"; return; }
