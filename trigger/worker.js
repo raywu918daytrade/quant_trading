@@ -34,6 +34,12 @@ export default {
       if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) return json({ detail: "date 格式要 YYYY-MM-DD" }, 400, req);
       const wf = WORKFLOWS[b.workflow || "signals"]; if (!wf) return json({ detail: "workflow 只能是 signals / paper" }, 400, req);
       if (Date.now() - (lastFire[wf] || 0) < 60000) return json({ detail: "60 秒內已觸發過，請稍候" }, 429, req);
+      // 伺服器端防重複: GitHub 上同一 workflow 有排隊/執行中 → 不再觸發 (isolate 的 lastFire 不可靠)
+      const rr = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/actions/workflows/${wf}/runs?per_page=5`, { headers: gh });
+      if (rr.status === 200) {
+        const active = ((await rr.json()).workflow_runs || []).find(x => x.status === "queued" || x.status === "in_progress" || x.status === "waiting");
+        if (active) return json({ detail: "GitHub 已有執行中的補跑，請等它完成", runs_url: active.html_url }, 429, req);
+      }
       const r = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/actions/workflows/${wf}/dispatches`, { method: "POST", headers: { ...gh, "Content-Type": "application/json" }, body: JSON.stringify({ ref: "main", inputs: { date } }) });
       if (r.status !== 204) return json({ detail: `GitHub ${r.status}: ${(await r.text()).slice(0, 200)}` }, 502, req);
       lastFire[wf] = Date.now();
