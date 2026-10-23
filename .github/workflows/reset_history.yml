@@ -1,0 +1,31 @@
+name: Reset trade history (archive old, start fresh)
+on:
+  workflow_dispatch:
+    inputs:
+      variant:
+        description: "sr (正式) / base (影子) / both"
+        default: "both"
+jobs:
+  reset:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q pandas pyarrow requests huggingface_hub
+      - name: Download D1 (2 months) so record_results can run
+        run: |
+          python3 - <<'PY'
+          import sys; sys.path.insert(0, "scripts")
+          from daily_candidates import refresh_d1
+          refresh_d1(2)
+          PY
+      - name: Archive and reset
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          V="${{ github.event.inputs.variant }}"
+          if [ "$V" = "sr" ] || [ "$V" = "both" ]; then python3 scripts/record_results.py --variant sr --reset; fi
+          if [ "$V" = "base" ] || [ "$V" = "both" ]; then python3 scripts/record_results.py --variant base --reset; fi

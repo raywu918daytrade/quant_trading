@@ -33,7 +33,7 @@ details summary{cursor:pointer;color:var(--accent);font-size:14px}
 </style></head><body>
 <header><h1>當沖做空名單</h1><button id="btnReload">重新整理</button></header>
 <main>
-  <div class="datebar"><input type="date" id="dateIn"><button id="btnDate">載入</button><button id="btnLatest" class="sec">回最新</button><span id="status" class="muted"></span></div>
+  <div class="datebar"><input type="date" id="dateIn"><button id="btnDate">載入</button><button id="btnLatest" class="sec">回最新</button><a class="sec" style="display:inline-block;padding:7px 10px;border:1px solid var(--accent);border-radius:8px;color:var(--accent);text-decoration:none;font-size:13px" href="https://github.com/raywu918daytrade/quant_trading/actions/workflows/daily_signals.yml" target="_blank" rel="noopener">補跑某天 ↗</a><span id="status" class="muted"></span></div>
   <div class="seg" id="seg"><button data-v="main" class="on">正式：支撐壓力</button><button data-v="base">影子：基準</button><button data-v="cmp">對照</button></div>
   <div id="cmpBox" style="display:none">
     <div class="cards" id="cmpCards"></div>
@@ -59,6 +59,11 @@ details summary{cursor:pointer;color:var(--accent);font-size:14px}
   </details>
   <h2>今日名單</h2>
   <div id="picks" class="list"></div>
+  <h2 style="margin-top:18px">交易紀錄 <small id="histMeta" class="muted"></small></h2>
+  <div class="cards" id="histCards"><div class="card" style="grid-column:1/-1"><div class="k">尚無紀錄</div></div></div>
+  <div class="wrap"><table><thead><tr><th>日期</th><th>檔</th><th>勝</th><th>損益元</th><th>%</th></tr></thead><tbody id="histBody"></tbody></table></div>
+  <div id="histDetail" style="display:none;margin-top:8px"><div class="muted" id="histDetailTitle" style="margin-bottom:4px"></div><div class="wrap"><table><thead><tr><th>代號</th><th>名稱</th><th>張</th><th>進場</th><th>出場</th><th>方式</th><th>淨%</th><th>損益</th></tr></thead><tbody id="histDetailBody"></tbody></table></div></div>
+  <p class="muted" style="margin-top:6px">依當天發布的名單用日線結算 (進場開盤價、觸 +8% 以強制價出、否則收盤價、成本 0.23%)，每天 09:01 自動追加，換模型也接續記錄 (model 欄位可區分)。補跑某天: 開 Actions → Run workflow → 填 date。</p>
   <details style="margin-top:14px"><summary>表格檢視</summary>
     <div class="wrap"><table><thead><tr><th>代號</th><th>名稱</th><th>開盤</th><th>張數</th><th>金額</th><th>強制回補</th><th>漲停</th></tr></thead><tbody id="tbody"></tbody></table></div>
   </details>
@@ -121,7 +126,7 @@ function render(j){
   $("tbody").innerHTML = picks.map(p => `<tr><td>${p.stock_id}</td><td>${p.name ?? ""}</td><td>${fmt(p.open)}</td><td>${p.lots}</td><td>${money(p.amount)}</td><td>${fmt(p.force_cover)}</td><td>${fmt(p.limit_up)}</td></tr>`).join("");
   $("meta").textContent = `開盤價來源: ${j.source ?? "–"} · 模型: ${j.model ?? "–"} · 發布時間: ${j.published_at ?? "–"}`;
   if(j.date) $("dateIn").value = j.date;
-  loadPaper(j.date);
+  loadPaper(j.date); loadHistory();
 }
 
 async function loadLive(date){
@@ -182,6 +187,28 @@ async function loadCompare(date){
 }
 document.querySelectorAll("#seg button").forEach(b => b.onclick = () => { VARIANT = b.dataset.v; document.querySelectorAll("#seg button").forEach(x => x.classList.toggle("on", x === b)); $("cmpBox").style.display = "none"; try{ localStorage.setItem("variant", VARIANT); }catch(e){} load($("dateIn").value && $("dateIn").value !== lastLatest ? $("dateIn").value : null); });
 try{ const v = localStorage.getItem("variant"); if(v && ["main",SHADOW,"cmp"].includes(v)){ VARIANT = v; document.querySelectorAll("#seg button").forEach(x => x.classList.toggle("on", x.dataset.v === v)); } }catch(e){}
+let HIST = [];
+async function loadHistory(){
+  const sfx = (VARIANT === SHADOW) ? "_" + SHADOW : "";
+  try{
+    const [daily, trades] = await Promise.all([fetchCsv(BASE + `history_daily${sfx}.csv`), fetchCsv(BASE + `history${sfx}.csv`)]);
+    HIST = trades; const D = daily.filter(r => r.date).sort((a,b) => b.date.localeCompare(a.date));
+    if(!D.length){ $("histCards").innerHTML = `<div class="card" style="grid-column:1/-1"><div class="k">尚無紀錄</div></div>`; $("histBody").innerHTML = ""; $("histMeta").textContent = ""; return; }
+    const traded = D.filter(r => +r.n > 0); const pnl = traded.reduce((t,r) => t + (+r.pnl||0), 0); const wins = traded.filter(r => +r.pnl > 0).length;
+    const nTr = HIST.length, wTr = HIST.filter(r => +r.pnl > 0).length;
+    $("histCards").innerHTML = [["累積損益", money(pnl) + " 元"], ["累積報酬 (對 300 萬)", (pnl/3000000*100 > 0 ? "+" : "") + fmt(pnl/3000000*100) + "%"], ["交易日 / 勝", `${traded.length} / ${wins}`], ["筆數 / 勝率", `${nTr} / ${nTr ? Math.round(wTr/nTr*100) : 0}%`]]
+      .map(([k,val]) => `<div class="card"><div class="k">${k}</div><div class="v ${/^[+-]/.test(val) ? (val.startsWith("+")?"pos":"neg") : ""}" style="font-size:17px">${val}</div></div>`).join("");
+    $("histMeta").textContent = `${D[D.length-1].date} ~ ${D[0].date}`;
+    $("histBody").innerHTML = D.map(r => `<tr data-d="${r.date}" style="cursor:pointer"><td>${r.date.slice(5)}${r.no_trade ? " <span class='chip'>不交易</span>" : ""}</td><td>${r.n}</td><td>${r.wins}</td><td class="${pctCls(+r.pnl)}">${money(+r.pnl)}</td><td class="${pctCls(+r.ret_pct)}">${(+r.ret_pct>0?"+":"") + fmt(+r.ret_pct)}</td></tr>`).join("");
+    document.querySelectorAll("#histBody tr").forEach(tr => tr.onclick = () => showHistDay(tr.dataset.d));
+  }catch(e){ $("histCards").innerHTML = `<div class="card" style="grid-column:1/-1"><div class="k">尚無紀錄</div></div>`; }
+}
+function showHistDay(d){
+  const rows = HIST.filter(r => r.date === d); if(!rows.length){ $("histDetail").style.display = "none"; return; }
+  $("histDetailTitle").textContent = d + " 各檔 (點日期列切換)";
+  $("histDetailBody").innerHTML = rows.map(r => `<tr><td>${r.stock_id}</td><td>${r.name||""}</td><td>${r.lots}</td><td>${fmt(+r.entry)}</td><td>${fmt(+r.exit)}</td><td>${({forced:"強制",close:"收盤",lock:"鎖漲停",lock_pending:"鎖漲停*"})[r.exit_reason]||r.exit_reason}</td><td class="${pctCls(+r.net_pct)}">${(+r.net_pct>0?"+":"")+fmt(+r.net_pct)}</td><td class="${pctCls(+r.pnl)}">${money(+r.pnl)}</td></tr>`).join("");
+  $("histDetail").style.display = "";
+}
 $("btnReload").onclick = () => load($("dateIn").value && $("dateIn").value !== lastLatest ? $("dateIn").value : null);
 $("btnDate").onclick = () => load($("dateIn").value || null);
 $("btnLatest").onclick = () => load(null);
