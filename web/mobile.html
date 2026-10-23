@@ -88,7 +88,7 @@ function pctCls(v){ return v>0 ? "pos" : v<0 ? "neg" : ""; }
 async function load(date){
   const v = VARIANT === "cmp" ? "main" : VARIANT;
   const url = SRC ? SRC : BASE + sigName(date, v) + "?t=" + Date.now();
-  $("banner").className="banner wait"; $("banner").textContent="載入中…"; $("status").textContent = "載入中…";
+  $("banner").className="banner wait"; $("banner").textContent="載入中…"; $("status").textContent = "載入中…"; if(date) $("dateIn").value = date;
   let j;
   try{
     const r = await fetch(url, {cache:"no-store"});
