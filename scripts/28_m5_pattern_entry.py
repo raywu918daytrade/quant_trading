@@ -66,7 +66,7 @@ def simulate_month(args):
 
 if __name__ == "__main__":
     R = pd.read_parquet(ROOT/"data/processed/trailing_stop_trades_sr.parquet")[["stock_id","date","entry","prev_close","next_open","rank"]]
-    d1 = pd.read_parquet(ROOT/"data/processed/d1.parquet", columns=["stock_id","date","open"]); d1["date"] = pd.to_datetime(d1.date)
+    d1 = pd.concat([pd.read_parquet(f, columns=["stock_id","date","open"]) for f in sorted(glob.glob(str(ROOT/"data/raw/d1/*.parquet")))], ignore_index=True).drop_duplicates(["stock_id","date"]); d1["date"] = pd.to_datetime(d1.date)
     R = R.merge(d1.rename(columns={"open": "day_open"}), on=["stock_id","date"], how="left"); R["ym"] = R.date.dt.strftime("%Y_%m")
     jobs = [(str(ROOT/"data/raw/m1"/f"{ym}.parquet"), g) for ym, g in R.groupby("ym") if (ROOT/"data/raw/m1"/f"{ym}.parquet").exists()]
     with ProcessPoolExecutor(6) as ex: parts = list(ex.map(simulate_month, jobs))
