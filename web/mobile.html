@@ -122,7 +122,7 @@ function render(j){
   const picks = j.picks || [];
   $("picks").innerHTML = picks.length ? picks.map(p => `
     <div class="pick">
-      <div class="top"><div><span class="id">${p.stock_id}</span><span class="nm">${p.name ?? ""}</span> <a href="#" class="kbtn" data-sid="${p.stock_id}" style="color:var(--accent);font-size:12px;margin-left:6px;text-decoration:none">分K ▾</a> <a href="https://tw.stock.yahoo.com/quote/${p.stock_id}" target="_blank" rel="noopener" style="color:var(--accent);font-size:12px;margin-left:4px;text-decoration:none">走勢 ↗</a></div><div class="rk">池內排名 ${p.rank} · 分數 ${fmt(p.pred_pct)}%</div></div>
+      <div class="top"><div><span class="id">${p.stock_id}</span><span class="nm">${p.name ?? ""}</span> </div><div class="rk" style="text-align:right;white-space:nowrap">池內排名 ${p.rank} · 分數 ${fmt(p.pred_pct)}%<br><a href="#" class="kbtn" data-sid="${p.stock_id}" style="color:var(--accent);text-decoration:none">分K ▾</a> · <a href="https://tw.stock.yahoo.com/quote/${p.stock_id}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none">走勢 ↗</a></div></div>
       <div class="grid">
         <div><div class="k">開盤</div><div class="v big">${fmt(p.open)}</div></div>
         <div><div class="k">張數</div><div class="v big">${p.lots}</div></div>
