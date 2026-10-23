@@ -219,9 +219,13 @@ function showHistDay(d){
 }
 let TRIGGER_URL = "https://quant-trigger.raywu918daytrade.workers.dev";   // Cloudflare Worker (trigger/worker.js); 可用 ?trigger=https://... 覆寫
 try{ TRIGGER_URL = qs.get("trigger") || localStorage.getItem("trigger_url") || TRIGGER_URL; if(qs.get("trigger")) localStorage.setItem("trigger_url", qs.get("trigger")); }catch(e){}
-let pollTimer = null;
+let pollTimer = null, replayInFlight = false;
 function pendingKey(d){ return "replay_pending_" + d; }
 async function autoReplay(d){
+  if(replayInFlight){ $("status").textContent = `${d} 補跑請求處理中，請稍候…`; return; }   // 連按載入不會重複送
+  replayInFlight = true; try { await autoReplayInner(d); } finally { replayInFlight = false; }
+}
+async function autoReplayInner(d){
   // 防重複: 5 分鐘內已觸發過 → 只輪詢; GitHub 有排隊/執行中 → 只輪詢
   let pend = 0; try{ pend = +localStorage.getItem(pendingKey(d)) || 0; }catch(e){}
   let running = false;
@@ -235,11 +239,12 @@ async function autoReplay(d){
 }
 function pollFor(d){
   if(pollTimer) clearInterval(pollTimer); let n = 0;
-  pollTimer = setInterval(async () => {
+  const check = async () => {
     n++; try{ const r = await fetch(BASE + sigName(d, VARIANT === "cmp" ? "main" : VARIANT) + "?t=" + Date.now(), {cache:"no-store"}); if(r.ok){ clearInterval(pollTimer); pollTimer = null; try{ localStorage.removeItem(pendingKey(d)); }catch(e){} load(d); return; } }catch(e){}
-    if(n >= 12){ clearInterval(pollTimer); pollTimer = null; $("status").textContent = `${d} 補跑 4 分鐘仍沒有名單，可能那天不是交易日或執行失敗，看 GitHub Actions 的紀錄`; }
+    if(n >= 12){ clearInterval(pollTimer); pollTimer = null; $("status").innerHTML = `${d} 補跑 4 分鐘仍沒有名單，可能那天不是交易日或執行失敗。<a href="https://github.com/raywu918daytrade/quant_trading/actions/workflows/daily_signals.yml" target="_blank" rel="noopener" style="color:var(--accent)">看 GitHub 執行紀錄 ↗</a>`; }
     else $("status").textContent = `${d} 補跑中… 已等 ${n*20} 秒 (最多 4 分鐘)`;
-  }, 20000);
+  };
+  check(); pollTimer = setInterval(check, 20000);
 }
 async function replay(d){
   if(!d){ $("status").textContent = "先選日期"; return false; }
