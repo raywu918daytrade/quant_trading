@@ -98,15 +98,17 @@ def fetch_signals(date_str, wait_until=None, local_csv=None):
         meta_p = Path(local_csv).with_name(Path(local_csv).stem + "_meta.json")
         meta = json.load(open(meta_p)) if meta_p.exists() else {}
         return meta.get("date", date_str), meta.get("no_trade", []), df.to_dict(orient="records")
+    last_log = None
     while True:
         try:
-            j = requests.get(SIGNALS_URL, params={"t": int(time.time())}, timeout=15).json()
-            if j.get("date") == date_str: return j["date"], j.get("no_trade", []), j.get("picks", [])
-            log(f"HF latest.json 日期 {j.get('date')} != {date_str}, 等待名單 ...")
+            j = requests.get(SIGNALS_URL, params={"t": int(time.time()*1000)}, headers={"Cache-Control": "no-cache"}, timeout=15).json()
+            if j.get("date") == date_str: log(f"讀到名單 (published_at {j.get('published_at')})"); return j["date"], j.get("no_trade", []), j.get("picks", [])
+            if last_log is None or (now() - last_log).total_seconds() >= 30:
+                last_log = now(); log(f"HF latest.json 日期 {j.get('date')} != {date_str}, 等待名單 ...")
         except Exception as e:
             log("讀 latest.json 失敗:", e)
         if wait_until is None or now() >= wait_until: return None, None, None
-        time.sleep(20)
+        time.sleep(1 if now() >= at(9, 0, 50) else 15)   # 名單 09:01 後十幾秒發布, 那段每秒查一次
 
 def sleep_until(t):
     while (d := (t - now()).total_seconds()) > 0: time.sleep(min(d, 5))
@@ -378,20 +380,20 @@ def main():
     if now().weekday() >= 5 and not a.dry: sys.exit("週末不跑")
 
     sys.path.insert(0, str(ROOT/"scripts"))
+    import shioaji as sj
+    api = connect_simulation_only(sj)   # 先登入等名單, 名單一出來就能查合約下單
     d, no_trade, picks = fetch_signals(date_str, wait_until=None if a.dry else at(9, 10), local_csv=a.signals)
-    if picks is None: sys.exit(f"09:10 前沒有等到 {date_str} 的名單, 放棄")
+    if picks is None: api.logout(); sys.exit(f"09:10 前沒有等到 {date_str} 的名單, 放棄")
     log(f"名單 {d}: {len(picks)} 檔, no_trade={no_trade}")
     if no_trade and not a.force_trade:
         summ = {"date": date_str, "mode": "simulation", "no_trade": no_trade, "n_picks": len(picks), "n_filled": 0, "n_skipped": 0, "n_forced": 0, "n_touched_force": 0,
                 "sim_avg_net_pct": None, "tick_avg_net_pct": None, "sim_win_rate": None, "sim_amount": 0, "sim_pnl_gross": 0, "sim_pnl_net": 0, "finished_at": now().strftime("%Y-%m-%d %H:%M:%S")}
         json.dump(summ, open(PAPER/f"{date_str}_summary.json", "w"), ensure_ascii=False, indent=1)
         with open(PAPER/f"{date_str}_trades.csv", "w", newline="", encoding="utf-8") as f: f.write("date,stock_id\n")
-        log("今日不交易，只記錄");
+        log("今日不交易，只記錄"); api.logout()
         if a.publish: publish(date_str, [], summ)
         return
 
-    import shioaji as sj
-    api = connect_simulation_only(sj)
     pt = Paper(api, picks, d)
     api.set_order_callback(pt.on_order); api.set_on_tick_stk_v1_callback(pt.on_tick)
     for p in picks:

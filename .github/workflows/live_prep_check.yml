@@ -1,0 +1,26 @@
+name: Check live precompute == full recompute
+on:
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "當作「今天」的歷史日 YYYY-MM-DD (空白 = D1 最後一天)"
+        default: ""
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TZ: Asia/Taipei
+      HF_HUB_DISABLE_PROGRESS_BARS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - run: pip install -q -r requirements.txt
+      - run: python3 -c "import sys; sys.path.insert(0, 'scripts'); from daily_candidates import refresh_d1; refresh_d1(6)"
+      - run: |
+          D="${{ inputs.date }}"
+          if [ -n "$D" ]; then python3 scripts/check_live_prep.py --date "$D"; else python3 scripts/check_live_prep.py; fi

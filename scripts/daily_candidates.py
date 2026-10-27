@@ -5,8 +5,9 @@
   python3 scripts/daily_candidates.py                           # 09:01 執行: 從證交所即時行情抓開盤價 → 產生今日名單
   python3 scripts/daily_candidates.py --open-csv opens.csv      # 自備開盤價 (欄位 stock_id,open)
   python3 scripts/daily_candidates.py --date 2026-10-22         # 回放: 用歷史 D1 的開盤價 (驗證用)
+  python3 scripts/daily_candidates.py --variant all --at 09:01   # 盤前先算好特徵 (不含開盤價的部分), 等到 09:01:00 抓開盤價只補算跳空/大盤/支撐壓力, 幾秒出名單
 """
-import argparse, sys, time, json, glob
+import argparse, sys, time, json, glob, datetime as dt
 from pathlib import Path
 import numpy as np, pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -80,6 +81,7 @@ def main():
     ap.add_argument("--no-daytrade-filter", action="store_true", help="不過濾現股當沖先賣後買資格 (對照用)")
     ap.add_argument("--skip-existing", action="store_true", help="回放多日時, 跳過 HF 上已發布的日期 (保留當時版本)")
     ap.add_argument("--variant", default=CFG.MAIN_VARIANT, choices=CFG.VARIANTS + ["all"], help=f"模型變體 (base=基準33特徵, sr=基準+支撐壓力, seq=基準+K線序列; all=正式+影子一次算). 正式={CFG.MAIN_VARIANT} 輸出不帶後綴, 其他輸出檔名加 _<variant>")
+    ap.add_argument("--at", default=None, help="即時模式: 先算好特徵, 等到台灣時間 HH:MM[:SS] 再抓開盤價 (例 09:01)")
     a = ap.parse_args()
     if a.refresh: refresh_d1(a.months)
 
@@ -122,15 +124,23 @@ def main():
         source = "歷史 D1 open"
     else:
         if (tdate - last).days > 7: print("警告: D1 超過 7 天沒更新，請先 --refresh")
-        base_last = d1[d1.date == last][["stock_id","market_type","name","close","volume"]]
-        # 需要開盤價的範圍: 流動股 (供 mkt_* 計算) — 用上一日粗估 dv20
-        tmp = F.build_B(F.d1_base(d1)); tmp = tmp[tmp.date == last]
-        need = base_last.merge(tmp[["stock_id","dv20"]], on="stock_id")
-        need = need[(need.dv20 >= 0.8e8) & need.market_type.isin(["twse","tpex"])]
+        variants = [CFG.MAIN_VARIANT, CFG.SHADOW_VARIANT] if a.variant == "all" else [a.variant]
+        t0 = time.time(); P = prepare_live(d1, last, tdate, seq="seq" in variants)
+        print(f"盤前特徵完成 ({time.time()-t0:.1f} 秒), 需要開盤價 {len(P['need'])} 檔")
+        if not a.no_daytrade_filter:
+            try: import daytrade_list as DL; DL.fetch_daytrade_eligible(tdate)   # 先抓好現沖資格 (快取), 09:01 後不必再等
+            except Exception as ex: print("預抓現沖資格失敗 (09:01 後再試):", ex)
+        if a.at:
+            hh, mm, *ss = [int(x) for x in a.at.split(":")]
+            target = dt.datetime.combine(dt.date.today(), dt.time(hh, mm, ss[0] if ss else 0))
+            wait = (target - dt.datetime.now()).total_seconds()
+            if wait > 0: print(f"等到 {a.at} 再抓開盤價 ({wait:.0f} 秒)", flush=True); time.sleep(wait)
+        t1 = time.time()
         if a.open_csv:
             op = pd.read_csv(a.open_csv, dtype={"stock_id":str}); source = a.open_csv
         else:
-            print(f"向證交所抓 {len(need)} 檔開盤價 ..."); op = fetch_twse_opens(need.stock_id.tolist(), need.market_type.tolist()); source = "TWSE MIS"
+            need = P["need"]
+            print(f"向證交所抓 {len(need)} 檔開盤價 ...", flush=True); op = fetch_twse_opens(need.stock_id.tolist(), need.market_type.tolist()); source = "TWSE MIS"
             (ROOT/"signals").mkdir(exist_ok=True); op.to_csv(ROOT/"signals"/f"{tdate.date()}_opens.csv", index=False)   # 存下來供 --variant seq 用同一份開盤價
             if op.mis_time.notna().any(): print("行情時間:", op.mis_date.dropna().iloc[0], op.mis_time.dropna().iloc[0])
             # 安全檢查: 行情日期必須等於目標日 (收盤後/盤前抓到的是前一交易日資料)
@@ -141,12 +151,13 @@ def main():
             t_now = pd.Timestamp.now()
             if t_now.hour*60+t_now.minute < 9*60+1: print("警告: 09:01 之前很多股票尚未開出，大盤平均跳空可能失真")
         op = op[op.open.notna() & (op.open > 0)]
-        print(f"取得 {len(op)} 檔開盤價")
-        today = base_last[["stock_id","market_type","name"]].merge(op[["stock_id","open"]], on="stock_id")
-        today["date"] = tdate
-        for c in ["high","low","close"]: today[c] = np.nan
-        today["volume"] = np.nan
-        d1 = pd.concat([d1, today], ignore_index=True)
+        print(f"取得 {len(op)} 檔開盤價 ({time.time()-t1:.1f} 秒)")
+        t_all, base_df = finish_live(P, op, tdate)
+        print(f"補算開盤相關特徵完成 ({time.time()-t1:.1f} 秒)")
+        for a.variant in variants:
+            run_variant(a, t_all.copy(), P["d1"], base_df, tdate, source, F.D1_FEATS + F.shadow_feats(a.variant), CFG.suffix(a.variant))
+        print(f"名單完成 (抓開盤價起算 {time.time()-t1:.1f} 秒)")
+        return
 
     base_df = F.d1_base(d1); f = F.build_B(base_df)
     variants = [CFG.MAIN_VARIANT, CFG.SHADOW_VARIANT] if a.variant == "all" else [a.variant]
@@ -157,6 +168,38 @@ def main():
     for a.variant in variants:   # 特徵只算一次, 各變體各自評分/配置/輸出
       FEATS = F.D1_FEATS + F.shadow_feats(a.variant); sfx = CFG.suffix(a.variant); t = t_all.copy()
       run_variant(a, t, d1, base_df, tdate, source, FEATS, sfx)
+
+def prepare_live(d1, last, tdate, seq=False):
+    """盤前 (開盤價出來前) 能算的全部先算: 今天每檔一列, open 先留空, 跑一次 d1_base/build_B.
+    build_B 的特徵除了 gap/gap_abs/gap_rel/mkt_gap/mkt_breadth 外都只用前一日以前的資料, 不受今天開盤價影響;
+    mkt_* 要等知道哪些股票有開盤價才能算 (原本今天只放有開盤價的股票), 交給 finish_live() 重算."""
+    base_last = d1[d1.date == last][["stock_id","market_type","name","close","volume"]]
+    today = base_last[["stock_id","market_type","name"]].copy(); today["date"] = tdate
+    for c in ["open","high","low","close","volume"]: today[c] = np.nan
+    d1x = pd.concat([d1, today], ignore_index=True)
+    base_df = F.d1_base(d1x); f = F.build_B(base_df)
+    if seq: f = f.merge(F.build_seq(base_df), on=["stock_id","date"], how="left")
+    # 需要開盤價的範圍: 流動股 (供 mkt_* 計算) — 用上一日粗估 dv20 (上一日的列不受今天新增的列影響)
+    prev = f[f.date == last][["stock_id","dv20"]]
+    need = base_last.merge(prev, on="stock_id")
+    need = need[(need.dv20 >= 0.8e8) & need.market_type.isin(["twse","tpex"])]
+    return {"d1": d1x, "base_df": base_df, "ft": f[f.date == tdate].copy(), "need": need}
+
+def finish_live(P, op, tdate):
+    """填入開盤價, 只重算跟開盤價有關的欄位. 結果與「把開盤價放進 D1 再整個重算 build_B」相同 (scripts/check_live_prep.py 驗證)."""
+    opm = op.drop_duplicates("stock_id").set_index("stock_id").open
+    t = P["ft"][P["ft"].stock_id.isin(opm.index)].copy()
+    t["open"] = t.stock_id.map(opm).astype(float)
+    t["gap"] = t.open/t.prev_close - 1; t["gap_abs"] = t.gap.abs()
+    liq = t[t.dv20 >= 1e8]
+    t["mkt_gap"] = liq.gap.mean(); t["mkt_pret"] = liq.p_ret.mean(); t["mkt_ret5"] = liq.p_ret5.mean()
+    t["mkt_breadth"] = (liq.gap > 0).mean(); t["mkt_uplim"] = float(liq.p_up_lim.mean())
+    t["gap_rel"] = t.gap - t.mkt_gap
+    t = t.merge(P["d1"][P["d1"].date == tdate][["stock_id","name"]].drop_duplicates("stock_id"), on="stock_id", how="left")
+    base_df = P["base_df"].copy(); m = base_df.date == tdate   # 支撐壓力特徵相對今天開盤價
+    base_df.loc[m, "open"] = base_df.loc[m, "stock_id"].map(opm).values
+    base_df.loc[m, "gap"] = base_df.loc[m, "open"] / base_df.loc[m, "prev_close"] - 1
+    return t, base_df
 
 def run_variant(a, t, d1, base_df, tdate, source, FEATS, sfx):
     import lightgbm as lgb

@@ -37,11 +37,28 @@ jobs:
           from daily_candidates import refresh_d1
           refresh_d1(int(sys.argv[1]))
           PY
+      - name: Wait for the early list (paper_trade.yml signals job publishes ~09:01:20)
+        id: early
+        if: github.event.inputs.date == ''
+        run: |
+          python3 - <<'PY'
+          import os, time, datetime as dt, requests
+          today = dt.date.today().isoformat(); deadline = dt.datetime.combine(dt.date.today(), dt.time(9, 2, 30))
+          while True:
+              try: d = requests.get("https://huggingface.co/datasets/raywu918daytrade/daytrade/resolve/main/db/signals/latest.json", params={"t": time.time()}, timeout=15).json().get("date")
+              except Exception as e: d = None; print("讀 latest.json 失敗:", e)
+              if d == today: print("提早版名單已發布, 不重算 (避免開盤價不同造成名單變動)"); skip = "true"; break
+              if dt.datetime.now() >= deadline: print("09:02:30 前沒等到提早版名單, 自己算 (備援)"); skip = "false"; break
+              time.sleep(3)
+          open(os.environ["GITHUB_OUTPUT"], "a").write(f"skip={skip}\n")
+          PY
       - name: Generate candidates, main + shadow in one pass (fetch opens from TWSE MIS once)
+        if: steps.early.outputs.skip != 'true'
         run: |
           D="${{ github.event.inputs.date }}"
           if [ -n "$D" ]; then python3 scripts/daily_candidates.py --date "$D" --variant all --skip-existing; else python3 scripts/daily_candidates.py --variant all; fi
       - name: Publish to HF db/signals
+        if: steps.early.outputs.skip != 'true'
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
