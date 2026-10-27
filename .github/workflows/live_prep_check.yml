@@ -24,3 +24,17 @@ jobs:
       - run: |
           D="${{ inputs.date }}"
           if [ -n "$D" ]; then python3 scripts/check_live_prep.py --date "$D"; else python3 scripts/check_live_prep.py; fi
+      - name: Time the TWSE MIS open-price fetch (same stock list as 09:01)
+        run: |
+          python3 - <<'PY'
+          import sys, time; sys.path.insert(0, "scripts")
+          import pandas as pd, daily_candidates as DC
+          d1 = pd.read_parquet(DC.ROOT/"data/processed/d1.parquet"); last = d1.date.max()
+          need = DC.prepare_live(d1, last, last + pd.Timedelta(days=1))["need"]
+          for sleep in (0.4, 0.1):
+              t = time.time(); op = DC.fetch_twse_opens(need.stock_id.tolist(), need.market_type.tolist(), sleep=sleep)
+              print(f"MIS {len(need)} 檔 (sleep={sleep}): {time.time()-t:.1f} 秒, 取得 {op.open.notna().sum()} 檔")
+          t = time.time()
+          import daytrade_list as DL; DL.fetch_daytrade_eligible(last + pd.Timedelta(days=1))
+          print(f"現沖資格: {time.time()-t:.1f} 秒")
+          PY
