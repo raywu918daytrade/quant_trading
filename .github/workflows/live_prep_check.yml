@@ -35,6 +35,6 @@ jobs:
               t = time.time(); op = DC.fetch_twse_opens(need.stock_id.tolist(), need.market_type.tolist(), sleep=sleep)
               print(f"MIS {len(need)} 檔 (sleep={sleep}): {time.time()-t:.1f} 秒, 取得 {op.open.notna().sum()} 檔")
           t = time.time()
-          import daytrade_list as DL; DL.fetch_daytrade_eligible(last + pd.Timedelta(days=1))
+          import daytrade_list as DL; DL.fetch_daytrade_eligible(last)
           print(f"現沖資格: {time.time()-t:.1f} 秒")
           PY
