@@ -1,0 +1,51 @@
+name: Disposal list probe (處置股歷史 + 與現沖名單比對)
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        description: "起始月 YYYY-MM"
+        default: "2020-01"
+permissions:
+  contents: write
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      TZ: Asia/Taipei
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q pandas numpy requests
+      - name: Fetch disposal history
+        run: python3 scripts/disposal_list.py "${{ github.event.inputs.start }}" "$(date +%Y-%m)"
+      - name: Compare with day-trade (先賣後買) eligibility, last 25 trading days
+        run: |
+          python3 - <<'PY' | tee research_dt.txt
+          import sys, datetime as dt, pandas as pd, json
+          sys.path.insert(0, "scripts")
+          import daytrade_list as DL, disposal_list as DP
+          df = pd.read_csv("data/raw/meta/disposal_all.csv", parse_dates=["start","end"])
+          rows = []; d = dt.date.today(); n = 0
+          while n < 25 and d > dt.date.today() - dt.timedelta(days=60):
+              if d.weekday() < 5:
+                  try: el = DL.fetch_daytrade_eligible(d.isoformat())
+                  except Exception as ex: el = None; print(d, "現沖名單失敗", ex)
+                  if el:
+                      n += 1; ts = pd.Timestamp(d)
+                      act = df[(df.start <= ts) & (df.end >= ts)]
+                      for _, r in act.iterrows():
+                          v = el.get(str(r.stock_id)); rows.append({"date": d, "stock_id": r.stock_id, "market": r.market, "level": r.level, "dt": "不在名單" if v is None else ("可先賣" if v else "暫停先賣")})
+              d -= dt.timedelta(days=1)
+          o = pd.DataFrame(rows)
+          print(o.groupby(["market","level","dt"]).size().to_string() if len(o) else "no overlap rows")
+          o.to_csv("data/raw/meta/disposal_vs_daytrade.csv", index=False)
+          PY
+      - name: Commit raw data to research/disposal
+        run: |
+          mkdir -p research/disposal
+          cp data/raw/meta/disposal_*.json data/raw/meta/disposal_all.csv data/raw/meta/disposal_vs_daytrade.csv research_dt.txt research/disposal/ || true
+          git config user.name "github-actions"; git config user.email "github-actions@users.noreply.github.com"
+          git add research/disposal && git commit -qm "research: disposal list history + day-trade overlap" && git push || echo "nothing to commit"
