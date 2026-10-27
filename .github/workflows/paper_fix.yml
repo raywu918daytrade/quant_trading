@@ -1,0 +1,26 @@
+name: Paper ledger fix (unfilled covers → close price estimate)
+on:
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "要補正的日期 YYYY-MM-DD"
+        required: true
+jobs:
+  fix:
+    strategy:
+      matrix:
+        variant: [sr, base]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TZ: Asia/Taipei
+      HF_HUB_DISABLE_PROGRESS_BARS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q requests pandas huggingface_hub
+      - env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: python3 scripts/paper_fix_unfilled.py --date "${{ inputs.date }}" --variant "${{ matrix.variant }}" --publish
