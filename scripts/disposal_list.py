@@ -83,8 +83,8 @@ def parse(raw) -> pd.DataFrame:
         dates = re.findall(r"\d{2,4}/\d{1,2}/\d{1,2}", period)
         if not sid or len(dates) < 2: continue
         content = " ".join(v for k, v in r.items() if k not in ("market",))
-        level = 2 if ("第二次" in content or "二十分鐘" in content or "20分鐘" in content) else 1 if ("第一次" in content or "五分鐘" in content or "5分鐘" in content) else 0
-        out.append({"stock_id": sid.split()[0], "name": _pick(r, "名稱"), "market": r["market"], "announce": _roc(_pick(r, "公布日期", "公告日期")),
+        level = 2 if ("第二次" in content or "再次處置" in content or "二十分鐘" in content or "20分鐘" in content) else 1 if ("第一次" in content or "五分鐘" in content or "5分鐘" in content) else 0
+        out.append({"stock_id": sid.split()[0], "name": re.sub(r"\(.*", "", _pick(r, "名稱")), "market": r["market"], "announce": _roc(_pick(r, "公布日期", "公告日期")),
                     "start": _roc(dates[0]), "end": _roc(dates[1]), "level": level, "content": _pick(r, "處置內容", "處置措施")[:200]})
     df = pd.DataFrame(out)
     if len(df): df = df.drop_duplicates(["stock_id", "start", "end"]).sort_values(["start", "stock_id"]).reset_index(drop=True)
