@@ -1,6 +1,6 @@
 """查永豐模擬環境的損益/部位/交割 API 會回傳什麼 (只查詢, 不下單)。
 用法: python3 scripts/pnl_probe.py [--date YYYY-MM-DD]   (需 SINOPAC_API_KEY / SINOPAC_SECRET_KEY)"""
-import argparse, sys, warnings
+import argparse, re, sys, warnings
 warnings.filterwarnings("ignore")
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -12,7 +12,7 @@ def show(name, fn):
         res = fn()
         items = list(res) if isinstance(res, (list, tuple)) else [res]
         log(f"== {name}: {len(items)} 筆")
-        for x in items[:50]: print("   ", x, flush=True)
+        for x in items[:50]: print("   ", re.sub(r"account=StockAccount\([^)]*\)", "account=<hidden>", str(x)), flush=True)   # 不印身分證字號/姓名
         return items
     except Exception as e:
         log(f"== {name}: 失敗 {type(e).__name__}: {e}"); return []
