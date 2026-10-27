@@ -47,4 +47,4 @@ jobs:
           d1[d1.date == last][["stock_id","open"]].to_csv("/tmp/opens.csv", index=False)
           nxt = last + pd.offsets.BDay(1); open("/tmp/next", "w").write(str(nxt.date()))
           PY
-          python3 -u scripts/daily_candidates.py --variant all --date "$(cat /tmp/next)" --open-csv /tmp/opens.csv --at 00:00 | head -40
+          python3 -u scripts/daily_candidates.py --variant all --date "$(cat /tmp/next)" --open-csv /tmp/opens.csv --at 00:00
