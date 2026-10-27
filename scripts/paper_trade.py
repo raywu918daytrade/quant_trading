@@ -6,7 +6,7 @@
   09:01:00     每檔市價「現股當沖先賣」(daytrade_short=True), 同時訂閱 tick
   盤中         tick.close >= 強制回補價 (昨收+8%) → 立即市價買回, 標記 forced
   盤中         (選用, 預設關) 組合未實現損益 <= -PORTFOLIO_STOP → 全部市價買回 (portfolio_stop); 13:24 現價 >= 昨收+6% 先買回 (pre_auction)
-  13:26        剩餘部位市價買回 (參與 13:30 收盤競價)
+  13:26        剩餘部位以漲停價限價買回 (13:25 起集合競價不收市價單; 參與 13:30 收盤競價)
   13:35        結算: 模擬成交價 vs 真實 tick 算的 09:01~09:03 VWAP / 收盤價, 寫 paper/<date>_trades.csv, _summary.json
                --publish 時上傳 HF db/paper/ 並更新 db/paper/latest.json + summary.csv (累計)
 

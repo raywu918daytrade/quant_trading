@@ -1,0 +1,25 @@
+name: Sinopac P&L probe (simulation, read-only)
+on:
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "查詢日 YYYY-MM-DD (空白 = 今天)"
+        required: false
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q shioaji requests pandas
+      - name: Query P&L / positions / settlements (no orders)
+        env:
+          SINOPAC_API_KEY: ${{ secrets.SINOPAC_API_KEY }}
+          SINOPAC_SECRET_KEY: ${{ secrets.SINOPAC_SECRET_KEY }}
+          TZ: Asia/Taipei
+          D: ${{ inputs.date }}
+        run: |
+          if [ -n "$D" ]; then python3 scripts/pnl_probe.py --date "$D"; else python3 scripts/pnl_probe.py; fi 2>&1 | grep -v -i "api_key\|secret"
