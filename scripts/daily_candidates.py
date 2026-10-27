@@ -43,27 +43,35 @@ def refresh_d1(months_back=2):
     df.to_parquet(ROOT/"data/processed/d1.parquet", index=False)
     print(f"d1.parquet rebuilt: {len(df)} rows, last date {df.date.max().date()}")
 
-def fetch_twse_opens(stock_ids, markets, sleep=0.4):
-    """證交所即時行情 (mis.twse.com.tw). 回傳 DataFrame(stock_id, open, prev_close_mis, name)."""
+def fetch_twse_opens(stock_ids, markets, sleep=0.4, workers=4):
+    """證交所即時行情 (mis.twse.com.tw). 回傳 DataFrame(stock_id, open, prev_close_mis, name).
+    每批 40 檔, workers 批同時抓 (從 GitHub 美國機房一批約 1 秒, 循序抓 560 檔要 15 秒以上)."""
     import requests
-    s = requests.Session(); s.headers.update({"User-Agent":"Mozilla/5.0", "Accept":"application/json"})
-    s.get("https://mis.twse.com.tw/stock/index.jsp", timeout=10)
+    from concurrent.futures import ThreadPoolExecutor
     codes = [f"{'tse' if m=='twse' else 'otc'}_{sid}.tw" for sid, m in zip(stock_ids, markets)]
-    out = []
-    for i in range(0, len(codes), 40):
-        url = "https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=" + "|".join(codes[i:i+40]) + "&json=1&delay=0&_=" + str(int(time.time()*1000))
-        for attempt in range(3):
-            try:
-                r = s.get(url, timeout=10); js = r.json(); break
-            except Exception as ex:
-                if attempt == 2: print("MIS fetch failed:", ex); js = {"msgArray": []}
-                time.sleep(1)
-        for m in js.get("msgArray", []):
-            o = m.get("o","-"); y = m.get("y","-")
-            out.append({"stock_id": m.get("c"), "open": float(o) if o not in ("-","") else np.nan,
-                        "prev_close_mis": float(y) if y not in ("-","") else np.nan, "mis_name": m.get("n"), "mis_time": m.get("t"), "mis_date": m.get("d")})
-        time.sleep(sleep)
-    return pd.DataFrame(out)
+    def batch(chunk):
+        s = requests.Session(); s.headers.update({"User-Agent":"Mozilla/5.0", "Accept":"application/json"})
+        try: s.get("https://mis.twse.com.tw/stock/index.jsp", timeout=10)
+        except Exception: pass
+        out = []
+        for i in range(0, len(chunk), 40):
+            url = "https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=" + "|".join(chunk[i:i+40]) + "&json=1&delay=0&_=" + str(int(time.time()*1000))
+            for attempt in range(3):
+                try:
+                    r = s.get(url, timeout=10); js = r.json(); break
+                except Exception as ex:
+                    if attempt == 2: print("MIS fetch failed:", ex); js = {"msgArray": []}
+                    time.sleep(1)
+            for m in js.get("msgArray", []):
+                o = m.get("o","-"); y = m.get("y","-")
+                out.append({"stock_id": m.get("c"), "open": float(o) if o not in ("-","") else np.nan,
+                            "prev_close_mis": float(y) if y not in ("-","") else np.nan, "mis_name": m.get("n"), "mis_time": m.get("t"), "mis_date": m.get("d")})
+            time.sleep(sleep)
+        return out
+    n = max(1, workers); per = -(-len(codes) // n // 40) * 40 or 40   # 每個 worker 分到整數批
+    chunks = [codes[i:i+per] for i in range(0, len(codes), per)]
+    with ThreadPoolExecutor(len(chunks) or 1) as ex: res = list(ex.map(batch, chunks))
+    return pd.DataFrame([x for r in res for x in r])
 
 def latest_model(variant="base"):
     tag = "B" if variant == "base" else "B" + variant

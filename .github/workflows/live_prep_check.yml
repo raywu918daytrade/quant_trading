@@ -31,9 +31,9 @@ jobs:
           import pandas as pd, daily_candidates as DC
           d1 = pd.read_parquet(DC.ROOT/"data/processed/d1.parquet"); last = d1.date.max()
           need = DC.prepare_live(d1, last, last + pd.Timedelta(days=1))["need"]
-          for sleep in (0.4, 0.1):
-              t = time.time(); op = DC.fetch_twse_opens(need.stock_id.tolist(), need.market_type.tolist(), sleep=sleep)
-              print(f"MIS {len(need)} 檔 (sleep={sleep}): {time.time()-t:.1f} 秒, 取得 {op.open.notna().sum()} 檔")
+          for w in (1, 4):
+              t = time.time(); op = DC.fetch_twse_opens(need.stock_id.tolist(), need.market_type.tolist(), workers=w)
+              print(f"MIS {len(need)} 檔 (workers={w}): {time.time()-t:.1f} 秒, 取得 {op.open.notna().sum()} 檔, 不重複 {op.stock_id.nunique()} 檔")
           t = time.time()
           import daytrade_list as DL; DL.fetch_daytrade_eligible(last)
           print(f"現沖資格: {time.time()-t:.1f} 秒")
