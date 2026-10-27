@@ -42,7 +42,8 @@ VWAP_WIN = ((9, 1, 0), (9, 3, 0))   # 真實 tick 基準: 09:01~09:03 VWAP
 PRE_AUCTION_T = (13, 24, 0)   # 逐筆撮合最後一分鐘: 現價 >= 昨收*(1+PRE_AUCTION_K) 的先市價買回 (13:25~13:30 沒有 tick, +8% 規則失效)
 PRE_AUCTION_K = 0.06
 PORTFOLIO_STOP = None     # 組合停損 (對已投入金額). 2026-10-23 決定不用 (None); 要用填 0.04 等 (stats/portfolio_stop_test*.md / stop_on_rally_days.md: 期望值幾乎不變, 只砍最差日)
-EXIT_T = (13, 26, 0)      # 其餘部位市價回補 (參與 13:30 收盤競價)
+EXIT_T = (13, 26, 0)      # 其餘部位回補 (參與 13:30 收盤競價)
+AUCTION_T = (13, 25, 0)   # 13:25 起收盤集合競價不收市價單 (op_code 88), 改用漲停價限價 ROD 買回, 以收盤價成交
 END_T = (13, 35, 0)
 LATE_ABORT_T = (9, 4, 0)
 LIVE_EVERY = 300          # 盤中每 5 分鐘寫一次 live.json (持倉與未實現損益) 到 HF  # 超過這時間還沒進場 (例如備援排程太晚啟動) 就放棄, 不在盤中亂下單
@@ -165,16 +166,16 @@ class Paper:
             log("tick callback error:", e)
 
     # ---- orders ----
-    def order(self, code, action, qty, daytrade_short=False):
+    def order(self, code, action, qty, daytrade_short=False, limit_px=None):
         import shioaji as sj
         c = self.contracts[code]
-        kw = dict(price=0, quantity=qty, action=action, price_type=sj.StockPriceType.MKT, order_type=sj.OrderType.ROD,
+        kw = dict(price=limit_px or 0, quantity=qty, action=action, price_type=sj.StockPriceType.LMT if limit_px else sj.StockPriceType.MKT, order_type=sj.OrderType.ROD,
                   order_lot=sj.StockOrderLot.Common, account=self.api.stock_account, custom_field=VARIANT[:6])   # 兩個變體共用同一模擬帳戶, 用 custom_field 區分回報
         if daytrade_short: kw["daytrade_short"] = True
         else: kw["order_cond"] = sj.StockOrderCond.Cash
         trade = self.api.place_order(c, self.api.Order(**kw))
         st = getattr(trade.status, "status", None)
-        log(f"委託 {code} {'券賣' if daytrade_short else '買回'} {qty}張 市價 → {st} id={trade.order.id}")
+        log(f"委託 {code} {'券賣' if daytrade_short else '買回'} {qty}張 {f'限價 {limit_px}' if limit_px else '市價'} → {st} id={trade.order.id}")
         return trade
 
     def enter(self):
@@ -202,7 +203,8 @@ class Paper:
         if filled <= 0:
             self.covered.add(code); p["_exit_reason"] = "no_fill"; log(f"{code} 券賣未成交, 不買回"); return
         try:
-            self.orders[(code, "Buy")] = self.order(code, sj.Action.Buy, int(filled))
+            lim = float(self.contracts[code].limit_up) if now() >= at(*AUCTION_T) else None   # 集合競價只收限價: 掛漲停價 = 必以收盤價成交 (除非收在漲停且買不到)
+            self.orders[(code, "Buy")] = self.order(code, sj.Action.Buy, int(filled), limit_px=lim)
             self.covered.add(code); p["_exit_reason"] = reason
         except Exception as e:
             log("✗ 買回委託失敗", code, e)
@@ -312,16 +314,21 @@ def summarize(rows, date_str, no_trade, mode):
     def mean(k):
         xs = [r[k] for r in rows if r.get(k) is not None]; return round(sum(xs)/len(xs), 3) if xs else None
     amt = sum((r["sim_sell_px"] or 0) * 1000 * (r["sim_sell_lots"] or 0) for r in rows)
+    closed = [r for r in rows if r["sim_sell_px"] and r["sim_buy_px"]]
+    unclosed = [r for r in rows if r["sim_sell_px"] and not r["sim_buy_px"]]   # 券賣成交但買回沒成交 (例: 買回單被拒), 不能當 0 損益
+    amt_closed = sum(r["sim_sell_px"] * 1000 * (r["sim_buy_lots"] or 0) for r in closed)
+    est_unclosed = sum((r["sim_sell_px"] * (1 - COST_RT) - r["tick_last"]) * 1000 * (r["sim_sell_lots"] or 0) for r in unclosed if r["tick_last"])
     pnl_nostop = sum((r["sim_sell_px"] or 0) * 1000 * (r["sim_sell_lots"] or 0) * ((r.get("nostop_net_pct") or 0)/100 + COST_RT) for r in rows if r["sim_sell_px"])
-    pnl = sum(((r["sim_sell_px"] or 0) - (r["sim_buy_px"] or 0)) * 1000 * (r["sim_buy_lots"] or 0) for r in rows if r["sim_sell_px"] and r["sim_buy_px"])
+    pnl = sum((r["sim_sell_px"] - r["sim_buy_px"]) * 1000 * (r["sim_buy_lots"] or 0) for r in closed)
     return {"date": date_str, "mode": mode, "no_trade": no_trade, "n_picks": len(rows), "n_filled": sum(1 for r in rows if r["sim_sell_px"]),
             "n_skipped": sum(1 for r in rows if r["skipped"]), "n_forced": sum(1 for r in rows if r["exit_reason"] == "forced"),
             "portfolio_stop": any(r["exit_reason"] == "portfolio_stop" for r in rows), "n_pre_auction": sum(1 for r in rows if r["exit_reason"] == "pre_auction"),
             "n_touched_force": sum(1 for r in rows if r["touched_force"]), "sim_avg_net_pct": mean("sim_net_pct"), "tick_avg_net_pct": mean("tick_net_pct"),
             "sim_win_rate": (round(sum(1 for r in rows if (r["sim_net_pct"] or 0) > 0) / max(1, sum(1 for r in rows if r["sim_net_pct"] is not None)), 3)
                              if any(r["sim_net_pct"] is not None for r in rows) else None),
-            "sim_amount": round(amt), "sim_pnl_gross": round(pnl), "sim_pnl_net": round(pnl - amt * COST_RT),
-            "nostop_pnl_net": round(pnl_nostop - amt * COST_RT), "nostop_avg_net_pct": mean("nostop_net_pct"), "finished_at": now().strftime("%Y-%m-%d %H:%M:%S")}
+            "sim_amount": round(amt), "sim_pnl_gross": round(pnl) if closed else None, "sim_pnl_net": round(pnl - amt_closed * COST_RT) if closed else None,
+            "n_unclosed": len(unclosed), "unclosed_est_pnl_net": round(est_unclosed) if unclosed else None,
+            "nostop_pnl_net": round(pnl_nostop - amt * COST_RT) if closed else None, "nostop_avg_net_pct": mean("nostop_net_pct"), "finished_at": now().strftime("%Y-%m-%d %H:%M:%S")}
 
 def publish(date_str, rows, summ):
     token = os.environ.get("HF_TOKEN")

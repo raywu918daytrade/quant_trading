@@ -84,7 +84,7 @@ details summary{cursor:pointer;color:var(--accent);font-size:14px}
   </details>
   </div>
   <p class="muted" id="meta"></p>
-  <p class="muted">出場: 盤中 ≥ 昨收 +8% 立即市價回補；13:24 現價 ≥ 昨收 +6% 先回補；13:26 其餘市價回補 (13:30 收盤價成交)。無停損停利。</p>
+  <p class="muted">出場: 盤中 ≥ 昨收 +8% 立即市價回補；13:24 現價 ≥ 昨收 +6% 先回補；13:26 其餘以漲停價限價回補 (集合競價不收市價單, 13:30 收盤價成交)。無停損停利。</p>
 </main>
 <nav class="tabbar" id="tabs"><button data-t="list" class="on"><span class="ico">☰</span>名單</button><button data-t="paper"><span class="ico">◎</span>模擬</button><button data-t="hist"><span class="ico">▤</span>紀錄</button></nav>
 <footer>資料來源: HF dataset raywu918daytrade/daytrade · db/signals · 由 GitHub Actions 每個平日 09:01 自動產生</footer>
@@ -198,7 +198,8 @@ async function loadPaper(date){
       ["成交 / 名單", `${s.n_filled} / ${s.n_picks}`], ["模擬平均淨報酬", pct(s.sim_avg_net_pct)],
       ["真實tick平均淨報酬", pct(s.tick_avg_net_pct)], ["勝率", s.sim_win_rate==null ? "–" : Math.round(s.sim_win_rate*100)+"%"],
       ["強制回補 / 觸及" + (s.portfolio_stop ? " · 組合停損" : ""), `${s.n_forced} / ${s.n_touched_force}`], ["模擬淨損益", s.sim_pnl_net==null ? "–" : money(s.sim_pnl_net)+" 元"],
-      ["若無組合停損 淨損益", s.nostop_pnl_net==null ? "–" : money(s.nostop_pnl_net)+" 元" + (s.portfolio_stop ? "" : " (未觸發, 同左)")]
+      ["若無組合停損 淨損益", s.nostop_pnl_net==null ? "–" : money(s.nostop_pnl_net)+" 元" + (s.portfolio_stop ? "" : " (未觸發, 同左)")],
+      ...(s.n_unclosed ? [["⚠ 買回未成交 " + s.n_unclosed + " 檔 (以最後成交價估)", s.unclosed_est_pnl_net==null ? "–" : money(s.unclosed_est_pnl_net)+" 元"]] : [])
     ].map(([k,v]) => `<div class="card"><div class="k">${k}</div><div class="v ${/^[+-]/.test(v) ? (v.startsWith("+")?"pos":"neg") : ""}">${v}</div></div>`).join("");
     try{
       const t = await fetch(PAPER + `${s.date}_trades.csv?t=` + Date.now(), {cache:"no-store"}); const txt = await t.text();
