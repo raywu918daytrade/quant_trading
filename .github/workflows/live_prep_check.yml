@@ -38,3 +38,13 @@ jobs:
           import daytrade_list as DL; DL.fetch_daytrade_eligible(last)
           print(f"現沖資格: {time.time()-t:.1f} 秒")
           PY
+      - name: End-to-end live path (next day, opens = last D1 opens via --open-csv; no publish)
+        run: |
+          python3 - <<'PY'
+          import sys; sys.path.insert(0, "scripts")
+          import pandas as pd, daily_candidates as DC
+          d1 = pd.read_parquet(DC.ROOT/"data/processed/d1.parquet"); last = d1.date.max()
+          d1[d1.date == last][["stock_id","open"]].to_csv("/tmp/opens.csv", index=False)
+          nxt = last + pd.offsets.BDay(1); open("/tmp/next", "w").write(str(nxt.date()))
+          PY
+          python3 -u scripts/daily_candidates.py --variant all --date "$(cat /tmp/next)" --open-csv /tmp/opens.csv --at 00:00 | head -40
