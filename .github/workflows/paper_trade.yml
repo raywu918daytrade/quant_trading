@@ -33,8 +33,9 @@ jobs:
           SINOPAC_SECRET_KEY: ${{ secrets.SINOPAC_SECRET_KEY }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
+          set -o pipefail   # Shioaji 登入時會印含身分證字號的 Session Property 行, 濾掉
           D="${{ github.event.inputs.date }}"; V="${{ matrix.variant }}"
-          if [ -n "$D" ]; then python3 scripts/paper_trade.py --publish --variant "$V" --date "$D"; else python3 scripts/paper_trade.py --publish --variant "$V"; fi
+          if [ -n "$D" ]; then python3 scripts/paper_trade.py --publish --variant "$V" --date "$D"; else python3 scripts/paper_trade.py --publish --variant "$V"; fi 2>&1 | grep --line-buffered -v "Session Property"
       - name: Upload paper results as run artifact
         if: always()
         uses: actions/upload-artifact@v4

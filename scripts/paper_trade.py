@@ -280,6 +280,11 @@ class Paper:
         ds = self.deals[key]; q = sum(q for _, q, _ in ds)
         return (sum(p*q for p, q, _ in ds) / q, q) if q else (None, 0)
 
+    def deal_times(self, key):
+        """永豐成交回報的時間 (第一筆, 最後一筆), HH:MM:SS; 沒有成交回 ("", "")."""
+        ts = sorted(t for _, _, t in self.deals[key] if t)
+        return (deal_hms(ts[0]), deal_hms(ts[-1])) if ts else ("", "")
+
     def settle(self):
         self.refresh_deals_from_status()
         d0 = now().date(); rows = []
@@ -288,6 +293,7 @@ class Paper:
         for p in self.picks:
             code = p["stock_id"]
             sell_px, sell_q = self.avg((code, "Sell")); buy_px, buy_q = self.avg((code, "Buy"))
+            sell_t, _ = self.deal_times((code, "Sell")); _, buy_t = self.deal_times((code, "Buy"))
             last = self.ticks[code][-1][1] if self.ticks[code] else None
             vw = self.vwap(code, t0, t1)
             sim_ret = (sell_px / buy_px - 1) if (sell_px and buy_px) else None
@@ -301,6 +307,7 @@ class Paper:
             rows.append({"date": self.date, "stock_id": code, "name": p.get("name"), "lots": p.get("lots"), "prev_close": p.get("prev_close"),
                          "open_signal": p.get("open"), "force_cover": p.get("force_cover"), "day_trade": str(getattr(self.contracts.get(code), "day_trade", "")),
                          "skipped": self.skipped.get(code, ""), "sim_sell_px": sell_px, "sim_sell_lots": sell_q, "sim_buy_px": buy_px, "sim_buy_lots": buy_q,
+                         "sim_sell_time": sell_t, "sim_buy_time": buy_t,
                          "exit_reason": p.get("_exit_reason", ""), "tick_vwap_0901_0903": vw, "tick_high": self.high.get(code) or None, "tick_last": last,
                          "n_ticks": len(self.ticks[code]), "sim_ret_pct": None if sim_ret is None else round(sim_ret*100, 3),
                          "sim_net_pct": None if sim_ret is None else round((sim_ret - COST_RT)*100, 3),
@@ -309,6 +316,14 @@ class Paper:
                          "touched_force": bool(self.high.get(code, 0) >= p["force_cover"]),
                          "nostop_net_pct": None if nostop_ret is None else round((nostop_ret - COST_RT)*100, 3)})
         return rows
+
+def deal_hms(ts):
+    """Shioaji 成交 ts (epoch 秒或奈秒, 或 datetime) → 台灣時間 HH:MM:SS"""
+    if isinstance(ts, datetime): return ts.astimezone(TZ).strftime("%H:%M:%S")
+    try: ts = float(ts)
+    except (TypeError, ValueError): return ""
+    if ts > 1e12: ts /= 1e9
+    return datetime.fromtimestamp(ts, TZ).strftime("%H:%M:%S")
 
 def summarize(rows, date_str, no_trade, mode):
     def mean(k):

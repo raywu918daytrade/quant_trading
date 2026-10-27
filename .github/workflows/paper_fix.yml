@@ -5,6 +5,10 @@ on:
       date:
         description: "要補正的日期 YYYY-MM-DD"
         required: true
+      times:
+        description: "從永豐 list_trades 補成交時間 (只限當天收盤後)"
+        type: boolean
+        default: false
 jobs:
   fix:
     strategy:
@@ -20,7 +24,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -q requests pandas huggingface_hub
+      - run: pip install -q shioaji requests pandas huggingface_hub
       - env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: python3 scripts/paper_fix_unfilled.py --date "${{ inputs.date }}" --variant "${{ matrix.variant }}" --publish
+          SINOPAC_API_KEY: ${{ secrets.SINOPAC_API_KEY }}
+          SINOPAC_SECRET_KEY: ${{ secrets.SINOPAC_SECRET_KEY }}
+        run: |
+          set -o pipefail
+          T=""; if [ "${{ inputs.times }}" = "true" ]; then T="--times"; fi
+          python3 scripts/paper_fix_unfilled.py --date "${{ inputs.date }}" --variant "${{ matrix.variant }}" $T --publish 2>&1 | grep -v -i "api_key\|secret\|Session Property"
