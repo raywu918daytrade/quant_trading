@@ -60,7 +60,7 @@ details summary{cursor:pointer;color:var(--accent);font-size:14px}
   </div>
   <div class="cards" id="paperCards"><div class="card" style="grid-column:1/-1"><div class="k">尚無模擬紀錄</div></div></div>
   <details id="paperDetails" style="display:none"><summary>各檔成交</summary>
-    <div class="wrap"><table><thead><tr><th>代號</th><th>名稱</th><th>券賣</th><th>買回</th><th>出場</th><th>模擬淨%</th><th>tick淨%</th></tr></thead><tbody id="paperBody"></tbody></table></div>
+    <div class="wrap"><table><thead><tr><th>代號</th><th>名稱</th><th>訊號</th><th>券賣</th><th>價差%</th><th>買回</th><th>出場</th><th>模擬淨%</th><th>tick淨%</th></tr></thead><tbody id="paperBody"></tbody></table></div>
   </details>
   </div>
   <div id="pane-list2">
@@ -185,6 +185,7 @@ function annotateFromHistory(date){
   const rows = HIST.filter(r => r.date === date); if(!rows.length){ document.querySelectorAll(".livebar").forEach(e => e.style.display = "none"); return; }
   annotateCards(rows.map(r => ({sid: r.stock_id, chip: ({forced:"已強制回補", close:"已收盤回補", lock:"鎖漲停隔日", lock_pending:"鎖漲停"})[r.exit_reason] || r.exit_reason, px: +r.exit, pct: +r.net_pct, live: false})));
 }
+const slip = r => (+r.open_signal && +r.sim_sell_px) ? (+r.sim_sell_px / +r.open_signal - 1) * 100 : null;   // 券賣成交 vs 名單訊號價 (%)
 async function loadPaper(date){
   const PAPER = paperBase(VARIANT === "cmp" ? "main" : VARIANT);
   loadLive(date); if(VARIANT === "cmp") loadCompare(date);
@@ -206,8 +207,12 @@ async function loadPaper(date){
       const [head, ...lines] = txt.trim().split(/\r?\n/); const H = head.split(",");
       const rows = lines.filter(Boolean).map(l => { const cells = l.split(","); const o = {}; H.forEach((h,i)=>o[h]=cells[i]); return o; });
       if(rows.length && rows[0].stock_id){
-        $("paperBody").innerHTML = rows.map(r => `<tr><td>${r.stock_id}</td><td>${r.name||""}</td><td>${r.sim_sell_px ? fmt(+r.sim_sell_px) : "–"}${r.sim_sell_time ? `<div class="muted" style="font-size:11px">${r.sim_sell_time}</div>` : ""}</td><td>${r.sim_buy_px ? fmt(+r.sim_buy_px) : "–"}${r.sim_buy_time ? `<div class="muted" style="font-size:11px">${r.sim_buy_time}</div>` : ""}</td><td>${r.exit_reason==="forced"?"強制":r.exit_reason==="pre_auction"?"尾盤":r.exit_reason==="portfolio_stop"?"組合停損":r.exit_reason==="close"?"收盤":r.exit_reason==="close_est"?"收盤(估)":"–"}</td><td class="${(+r.sim_net_pct)>0?"pos":"neg"}">${r.sim_net_pct||"–"}</td><td>${r.tick_net_pct||"–"}</td></tr>`).join("");
+        $("paperBody").innerHTML = rows.map(r => `<tr><td>${r.stock_id}</td><td>${r.name||""}</td><td>${r.open_signal ? fmt(+r.open_signal) : "–"}</td><td>${r.sim_sell_px ? fmt(+r.sim_sell_px) : "–"}${r.sim_sell_time ? `<div class="muted" style="font-size:11px">${r.sim_sell_time}</div>` : ""}</td><td class="${slip(r)==null ? "" : pctCls(slip(r))}">${slip(r)==null ? "–" : (slip(r)>0?"+":"") + fmt(slip(r))}</td><td>${r.sim_buy_px ? fmt(+r.sim_buy_px) : "–"}${r.sim_buy_time ? `<div class="muted" style="font-size:11px">${r.sim_buy_time}</div>` : ""}</td><td>${r.exit_reason==="forced"?"強制":r.exit_reason==="pre_auction"?"尾盤":r.exit_reason==="portfolio_stop"?"組合停損":r.exit_reason==="close"?"收盤":r.exit_reason==="close_est"?"收盤(估)":"–"}</td><td class="${(+r.sim_net_pct)>0?"pos":"neg"}">${r.sim_net_pct||"–"}</td><td>${r.tick_net_pct||"–"}</td></tr>`).join("");
         $("paperDetails").style.display = "";
+        // 進場價差: 做空, 實際券賣價高於訊號價 (名單開盤價) 為正 = 多賺
+        const S = rows.filter(r => slip(r) != null), amt = S.reduce((t,r) => t + (+r.open_signal)*1000*(+r.sim_sell_lots), 0);
+        const diff = S.reduce((t,r) => t + (+r.sim_sell_px - +r.open_signal)*1000*(+r.sim_sell_lots), 0);
+        if(S.length) $("paperCards").insertAdjacentHTML("beforeend", `<div class="card"><div class="k">進場價差 (成交 vs 訊號)</div><div class="v ${pctCls(diff)}">${diff>0?"+":""}${money(diff)} 元</div><div class="k">${diff>0?"+":""}${fmt(diff/amt*100)}% · ${S.filter(r => slip(r) < 0).length}/${S.length} 檔賣得比訊號低</div></div>`);
       } else $("paperDetails").style.display = "none";
     }catch(e){ $("paperDetails").style.display = "none"; }
   }catch(e){ $("paperDate").textContent = ""; $("paperCards").innerHTML = `<div class="card" style="grid-column:1/-1"><div class="k">尚無模擬紀錄</div></div>`; $("paperDetails").style.display = "none"; }
