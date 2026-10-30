@@ -220,7 +220,7 @@ GitHub Actions (平日 UTC 01:01 = 台灣 09:01, .github/workflows/daily_signals
   (HF 的 CORS 允許瀏覽器直接讀; ?date=YYYY-MM-DD 可看歷史名單)
 ```
 - 自訂網域: GoDaddy 的 just1stock.com 加 CNAME `quant` → `raywu918daytrade.github.io`；repo 根目錄 `CNAME` 檔寫 `quant.just1stock.com`，Pages 設定 custom domain + Enforce HTTPS。
-- GitHub repo: https://github.com/raywu918daytrade/quant_trading (公開; data/ logs/ signals/ 不進版控)。改了 scripts/ 或 models/ 要 push 才會生效。push 含 workflow 的 commit 需要 gh token 有 `workflow` scope (目前只有 raywu918python 有, 它是協作者)。
+- GitHub repo: https://github.com/raywu918daytrade/quant_trading (公開; data/ logs/ signals/ 不進版控)。改了 scripts/ 或 models/ 要 push 才會生效。push 一律用 repo 擁有者 raywu918daytrade 的 gh token (有 `workflow` scope, 可 push 含 workflow 的 commit)；不要用 raywu918python。
 - 已驗證 (2026-10-23): GitHub runner 可連 mis.twse.com.tw (mis_probe)；用 date=2026-10-22 回放跑完整 workflow，結果與本機一致，HF 上出現 db/signals/latest.json。
 - 需要 60 個交易日以上歷史 (ret60/ma60)，所以雲端抓 6 個月 D1；`--refresh --months N` 可調。
 - `HF_TOKEN` 放 GitHub repo Settings → Secrets → Actions；必須是對 `raywu918daytrade/daytrade` 有寫入權的 token。workflow 不會印出 token。
