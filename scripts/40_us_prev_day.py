@@ -27,6 +27,7 @@ d1 = pd.concat([pd.read_parquet(f) for f in sorted(glob.glob(str(ROOT/"data/raw/
 pc = d1.groupby("stock_id").close.shift(1); d1["gap"] = d1.open/pc - 1; d1["intra"] = d1.close/d1.open - 1
 d1["dv20"] = (d1.close*d1.volume).groupby(d1.stock_id).transform(lambda s: s.shift(1).rolling(20).mean())
 mk = d1[d1.dv20 >= 1e8].groupby("date").agg(mkt_gap=("gap","mean"), mkt_intra=("intra","mean")).sort_index().reset_index()
+mk["date"] = mk.date.astype("datetime64[ns]"); ur = ur.assign(us_date=ur.us_date.astype("datetime64[ns]"))
 mk = pd.merge_asof(mk, ur, left_on="date", right_on="us_date", allow_exact_matches=False).set_index("date")
 mk["us_lag_days"] = (mk.index - mk.us_date).dt.days
 
