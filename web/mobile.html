@@ -28,13 +28,13 @@ td:first-child,th:first-child,td:nth-child(2),th:nth-child(2){text-align:left}
 input[type=date]{background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:14px}
 .seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;margin-bottom:10px}.seg button{flex:1;background:transparent;color:var(--muted);border:0;border-radius:0;padding:7px 4px;font-size:13px}.seg button.on{background:color-mix(in srgb,var(--accent) 18%,transparent);color:var(--accent)}
 .datebar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}.tabbar{position:fixed;left:0;right:0;bottom:0;z-index:5;display:flex;background:var(--card);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}.tabbar button{flex:1;background:transparent;color:var(--muted);border:0;border-radius:0;padding:8px 0 6px;font-size:12px;display:flex;flex-direction:column;align-items:center;gap:2px}.tabbar button .ico{font-size:18px;line-height:1}.tabbar button.on{color:var(--accent)}
-.equity{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px;margin-bottom:10px}.cal{display:grid;grid-template-columns:repeat(5,1fr);gap:3px;margin:6px 0 2px}.cal .d{aspect-ratio:1.6;border-radius:5px;font-size:11px;display:flex;align-items:center;justify-content:center;background:var(--chip);color:var(--muted);cursor:pointer}.cal .h{font-size:10px;color:var(--muted);text-align:center}.calmo{font-size:12px;color:var(--muted);margin-top:8px}.datebar .sec{background:transparent;color:var(--accent);border:1px solid var(--accent)}.datebar .muted{flex-basis:100%}
+.equity{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px;margin-bottom:10px}.cal{display:grid;grid-template-columns:repeat(5,1fr);gap:3px;margin:6px 0 2px}.cal .d{aspect-ratio:1.6;border-radius:5px;font-size:11px;display:flex;align-items:center;justify-content:center;background:var(--chip);color:var(--muted);cursor:pointer}.cal .h{font-size:10px;color:var(--muted);text-align:center}.calmo{font-size:12px;color:var(--muted);margin-top:8px}.datebar .sec{background:transparent;color:var(--accent);border:1px solid var(--accent)}.datebar .muted{flex-basis:100%}.datebar .nav{padding:7px 10px}
 h2{font-size:15px;margin:18px 0 8px}footer{color:var(--muted);font-size:12px;padding:16px 16px calc(70px + env(safe-area-inset-bottom));text-align:center;line-height:1.7}
 details summary{cursor:pointer;color:var(--accent);font-size:14px}
 </style></head><body>
 <header><h1>當沖做空名單</h1></header>
 <main>
-  <div class="datebar"><input type="date" id="dateIn"><button id="btnDate">載入</button><button id="btnLatest" class="sec">回最新</button><span id="status" class="muted"></span></div>
+  <div class="datebar"><button id="btnPrev" class="sec nav" title="上一個交易日 (←)">◀</button><input type="date" id="dateIn"><button id="btnNext" class="sec nav" title="下一個交易日 (→)">▶</button><button id="btnDate">載入</button><button id="btnLatest" class="sec">回最新</button><span id="status" class="muted"></span></div>
   <div class="seg" id="seg"><button data-v="main" class="on">正式：支撐壓力</button><button data-v="base">影子：基準</button><button data-v="cmp">對照</button></div>
 
   <div id="pane-list">
@@ -76,7 +76,7 @@ details summary{cursor:pointer;color:var(--accent);font-size:14px}
   <div class="wrap"><table><thead><tr><th>日期</th><th>檔</th><th>勝</th><th>損益元</th><th>%</th></tr></thead><tbody id="histBody"></tbody></table></div></details>
   <div id="histDetail" style="display:none;margin-top:8px"><div class="muted" id="histDetailTitle" style="margin-bottom:4px"></div><div class="wrap"><table><thead><tr><th>代號</th><th>名稱</th><th>張</th><th>進場</th><th>出場</th><th>方式</th><th>淨%</th><th>損益</th></tr></thead><tbody id="histDetailBody"></tbody></table></div>
     <div id="histK" style="display:none;margin-top:8px"><div class="muted" id="histKTitle" style="font-size:12px;margin-bottom:2px"></div><canvas width="640" height="220" style="width:100%;height:auto;display:block"></canvas><div class="muted" style="font-size:11px;margin-top:2px">5 分 K · 灰點線昨收 · 藍線進場 · 白虛線出場 · 橘虛線 +8%</div></div></div>
-  <details style="margin-top:6px"><summary class="muted" style="font-size:12px">說明</summary><p class="muted" style="margin:6px 0 0">依當天發布的名單用日線結算 (進場開盤價、觸 +8% 以強制價出、否則收盤價、成本 0.23%)，每天 09:01 自動追加，換模型也接續記錄 (model 欄位可區分)。補跑: 選日期按「載入」，平日且非未來日期沒有名單時自動觸發補跑 (需 PIN，問一次)，每 10 秒自動檢查、出來直接顯示。每個日期只自動補跑一次；5 分鐘內或 GitHub 執行中不重複觸發；之後重整只顯示手動連結。</p></details>
+  <details style="margin-top:6px"><summary class="muted" style="font-size:12px">說明</summary><p class="muted" style="margin:6px 0 0">依當天發布的名單用日線結算 (進場開盤價、觸 +8% 以強制價出、否則收盤價、成本 0.23%)，每天 09:01 自動追加，換模型也接續記錄 (model 欄位可區分)。日期左右 ◀ ▶ (或鍵盤 ← →) 直接切換上一/下一個有名單的交易日，自動跳過週末假日、不觸發補跑。補跑: 選日期按「載入」，平日且非未來日期沒有名單時自動觸發補跑 (需 PIN，問一次)，每 10 秒自動檢查、出來直接顯示。每個日期只自動補跑一次；5 分鐘內或 GitHub 執行中不重複觸發；之後重整只顯示手動連結。</p></details>
   </div>
   <div id="pane-list3">
   <details style="margin-top:14px"><summary>表格檢視</summary>
@@ -102,7 +102,9 @@ const $ = id => document.getElementById(id);
 const dowName = d => "日一二三四五六"[new Date(d+"T00:00:00").getDay()];
 function pctCls(v){ return v>0 ? "pos" : v<0 ? "neg" : ""; }
 
+let loadSeq = 0;
 async function load(date){
+  const seq = ++loadSeq;   // 連按上一日/下一日時只顯示最後一次
   const v = VARIANT === "cmp" ? "main" : VARIANT;
   const url = SRC ? SRC : BASE + sigName(date, v) + "?t=" + Date.now();
   $("banner").className="banner wait"; $("banner").textContent="載入中…"; $("status").textContent = "載入中…"; if(date) $("dateIn").value = date;
@@ -112,6 +114,7 @@ async function load(date){
     if(!r.ok) throw new Error(r.status===404 ? (date ? `${date} 沒有名單 (假日、未交易或尚未產生)` : "尚無最新名單") : `HTTP ${r.status}`);
     j = await r.json();
   }catch(e){
+    if(seq !== loadSeq) return;
     $("banner").className="banner stop"; $("banner").textContent="讀取失敗: " + e.message; $("status").textContent = "✗ " + e.message;
     if(date && /沒有名單/.test(e.message)){
       const dow = new Date(date + "T00:00:00").getDay(); const today = new Date().toISOString().slice(0,10);
@@ -122,6 +125,7 @@ async function load(date){
     }
     return;
   }
+  if(seq !== loadSeq) return;
   render(j); setBusy(false);
   $("status").textContent = `✓ 已載入 ${j.date} 的名單` + (date ? "" : " (最新)");
   window.scrollTo({top:0, behavior:"smooth"});
@@ -353,7 +357,7 @@ async function autoReplayInner(d, manual){
   if(ok){ try{ localStorage.setItem(pendingKey(d), String(Date.now())); localStorage.setItem("replay_tried_" + d, "1"); }catch(e){} pollFor(d); }
 }
 function setBusy(on, label){
-  ["btnDate","btnLatest"].forEach(id => { $(id).disabled = on; });
+  ["btnDate","btnLatest","btnPrev","btnNext"].forEach(id => { $(id).disabled = on; });
   $("btnDate").textContent = on ? label : "載入";
 }
 function pollFor(d){
@@ -400,6 +404,27 @@ document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => showTab
 try{ const t = localStorage.getItem("tab"); if(["list","paper","hist"].includes(t)) showTab(t); }catch(e){}
 $("btnDate").onclick = () => load($("dateIn").value || null);
 $("btnLatest").onclick = () => load(null);
+// 上一日/下一日: 跳過週末，再往同方向找有名單的日子 (假日)，找到直接載入顯示，不觸發補跑
+const ymd = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+let stepSeq = 0;
+async function stepDay(dir){
+  const cur = $("dateIn").value || lastLatest; if(!cur) return;
+  const seq = ++stepSeq, v = VARIANT === "cmp" ? "main" : VARIANT, max = ymd(new Date());
+  const d = new Date(cur + "T00:00:00");
+  for(let i = 0; i < 20; i++){
+    d.setDate(d.getDate() + dir); const s = ymd(d);
+    if(dir > 0 && s > max){ $("dateIn").value = cur; $("status").textContent = `${cur} 已是最新的名單`; return; }
+    if(d.getDay() === 0 || d.getDay() === 6) continue;
+    $("dateIn").value = s; $("status").textContent = `找 ${s} 的名單…`;
+    let ok = false; try{ ok = (await fetch(BASE + sigName(s, v) + "?t=" + Date.now(), {cache:"no-store"})).ok; }catch(e){}
+    if(seq !== stepSeq) return;   // 又按了一次, 交給新的那次
+    if(ok){ load(s); return; }
+  }
+  $("dateIn").value = cur; $("status").textContent = `${cur} ${dir < 0 ? "之前" : "之後"} 20 天內找不到名單`;
+}
+$("btnPrev").onclick = () => stepDay(-1);
+$("btnNext").onclick = () => stepDay(1);
+document.addEventListener("keydown", e => { if(e.target.tagName === "INPUT" || e.altKey || e.ctrlKey || e.metaKey) return; if(e.key === "ArrowLeft") stepDay(-1); else if(e.key === "ArrowRight") stepDay(1); });
 let lastLatest = null;
 load(qs.get("date") || null).then(() => { lastLatest = $("dateIn").value; });
 document.addEventListener("visibilitychange", () => { if(document.visibilityState==="visible" && !$("dateIn").value) load(null); });
