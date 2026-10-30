@@ -9,6 +9,10 @@
   13:26        剩餘部位以漲停價限價買回 (13:25 起集合競價不收市價單; 參與 13:30 收盤競價)
   13:35        結算: 模擬成交價 vs 真實 tick 算的 09:01~09:03 VWAP / 收盤價, 寫 paper/<date>_trades.csv, _summary.json
                --publish 時上傳 HF db/paper/ 並更新 db/paper/latest.json + summary.csv (累計)
+LINE 通知 (scripts/notify_line.py, 需 LINE_CHANNEL_ACCESS_TOKEN + LINE_USER_ID; 沒設定就略過):
+  開倉 09:01 進場後彙總一則 (之後才成交的補一則); 平倉 盤中強制/尾盤/組合停損回補成交時各一則;
+  每日結算 13:35 一則 (含收盤回補明細); 另有 委託異常 / 沒等到名單 / 太晚放棄 / 今日不交易。
+  只送 LINE_NOTIFY_VARIANTS 列的變體 (逗號分隔, 預設只有正式 = config.MAIN_VARIANT), --dry 不送。
 
 憑證: 環境變數 SINOPAC_API_KEY / SINOPAC_SECRET_KEY (或 --env-file .env), 絕不印出。模擬環境不需要憑證 CA。
 用法:
@@ -52,6 +56,20 @@ def now(): return datetime.now(TZ)
 def at(h, m, s=0): return now().replace(hour=h, minute=m, second=s, microsecond=0)
 def log(*a):
     print(now().strftime("%H:%M:%S"), *a, flush=True)
+
+NOTIFY_ON = False   # main() 依 --dry 與 LINE_NOTIFY_VARIANTS 設定
+EXIT_NAMES = {"forced": "強制回補", "pre_auction": "尾盤回補", "portfolio_stop": "組合停損", "close": "收盤回補", "no_fill": "券賣未成交"}
+def vlabel(): return "正式" if VARIANT == CFG.MAIN_VARIANT else f"影子 {VARIANT}"
+def notify(text, wait=False):
+    """LINE 推播. 預設丟背景 thread (不擋下單/回報 callback); 程式結束前的訊息用 wait=True."""
+    if not NOTIFY_ON: return
+    def _send():
+        try:
+            import notify_line; notify_line.push(text, quiet=True)
+        except Exception as e: log("LINE 推播例外:", e)
+    if wait: _send()
+    else: threading.Thread(target=_send, daemon=True).start()
+def fmt_px(x): return "-" if x is None else f"{x:,.2f}".rstrip("0").rstrip(".")
 
 def load_env_file(path):
     for line in open(path, encoding="utf-8", errors="ignore"):
@@ -125,6 +143,7 @@ class Paper:
         self.forced = set(); self.covered = set(); self.skipped = {}
         self.lock = threading.Lock()
         self.seen_events = set()
+        self.open_sent = False; self.open_notified = set(); self.close_notified = set()   # LINE 通知去重
 
     # ---- callbacks ----
     def on_order(self, stat, msg):
@@ -140,10 +159,16 @@ class Paper:
                 act = "Sell" if "Sell" in action else "Buy"
                 with self.lock: self.deals[(code, act)].append((float(msg["price"]), int(msg["quantity"]), msg.get("ts")))
                 log(f"成交 {code} {act} {msg['quantity']}張 @ {msg['price']}")
+                if act == "Sell" and self.open_sent and code not in self.open_notified:
+                    self.open_notified.add(code); threading.Timer(3, self.notify_late_open, args=(code,)).start()
+                elif act == "Buy" and code not in self.close_notified:
+                    self.close_notified.add(code); threading.Timer(3, self.notify_close, args=(code,)).start()   # 等 3 秒把部分成交合併
             else:
                 op = msg.get("operation", {}); o = msg.get("order", {}); c = msg.get("contract", {})
                 if op.get("op_code") not in ("00", None):
                     log(f"委託異常 {c.get('code')} {o.get('action')} op_code={op.get('op_code')} {op.get('op_msg')}")
+                    nm = self.by_code.get(c.get("code"), {}).get("name", "")
+                    notify(f"⚠【委託異常】{vlabel()} {now().strftime('%H:%M:%S')}\n{c.get('code')} {nm} {o.get('action')}\nop_code={op.get('op_code')} {op.get('op_msg')}")
         except Exception as e:
             log("order callback error:", e)
 
@@ -263,6 +288,39 @@ class Paper:
             log("live.json 上傳失敗:", e)
         return snap
 
+    # ---- LINE 通知 ----
+    def notify_open(self):
+        """進場後彙總: 已成交 (券賣均價/張數/強制回補價) + 委託中 + 略過."""
+        self.open_sent = True; filled = []; pending = []; skipped = []; amt = 0.0
+        for p in self.picks:
+            code = p["stock_id"]; nm = p.get("name", "")
+            if code in self.skipped: skipped.append(f"{code} {nm}: {self.skipped[code]}"); continue
+            if (code, "Sell") not in self.orders: continue
+            px, q = self.avg((code, "Sell"))
+            if q:
+                self.open_notified.add(code); amt += px*1000*q
+                filled.append(f"{code} {nm} 券賣 {q}張 @{fmt_px(px)}\n  強制回補 {fmt_px(p.get('force_cover'))}")
+            else: pending.append(f"{code} {nm} {p.get('lots')}張")
+        lines = [f"【開倉】{self.date} {vlabel()} {now().strftime('%H:%M:%S')}"] + filled
+        if pending: lines += ["委託中 (成交後另通知):"] + ["  " + x for x in pending]
+        if skipped: lines += ["略過:"] + ["  " + x for x in skipped]
+        lines.append(f"已成交 {len(filled)}/{len(self.picks)} 檔，券賣金額 {amt:,.0f} 元")
+        notify("\n".join(lines))
+
+    def notify_late_open(self, code):
+        px, q = self.avg((code, "Sell")); p = self.by_code[code]
+        if q: notify(f"【開倉】{self.date} {vlabel()} {now().strftime('%H:%M:%S')} (補成交)\n{code} {p.get('name','')} 券賣 {q}張 @{fmt_px(px)}\n  強制回補 {fmt_px(p.get('force_cover'))}")
+
+    def notify_close(self, code):
+        """盤中提早平倉 (強制/尾盤/組合停損) 成交時通知; 13:26 收盤回補的不在這裡送, 併入每日結算."""
+        p = self.by_code[code]; reason = p.get("_exit_reason", "")
+        if reason in ("close", "no_fill", ""): return
+        sp, sq = self.avg((code, "Sell")); bp, bq = self.avg((code, "Buy"))
+        if not (sp and bp): return
+        net = (sp/bp - 1 - COST_RT)*100; pnl = (sp - bp)*1000*bq - sp*1000*bq*COST_RT
+        notify(f"【平倉】{EXIT_NAMES.get(reason, reason)} {vlabel()} {now().strftime('%H:%M:%S')}\n{code} {p.get('name','')} {bq}張\n"
+               f"券賣 {fmt_px(sp)} → 買回 {fmt_px(bp)}\n淨 {net:+.2f}% ({pnl:+,.0f} 元)")
+
     # ---- settle ----
     def refresh_deals_from_status(self):
         """callback 可能漏, 用 update_status 補 trade.status.deals"""
@@ -347,6 +405,26 @@ def summarize(rows, date_str, no_trade, mode):
             "n_unclosed": len(unclosed), "unclosed_est_pnl_net": round(est_unclosed) if unclosed else None,
             "nostop_pnl_net": round(pnl_nostop - amt * COST_RT) if closed else None, "nostop_avg_net_pct": mean("nostop_net_pct"), "finished_at": now().strftime("%Y-%m-%d %H:%M:%S")}
 
+def settle_text(rows, summ):
+    """每日結算 LINE 訊息: 總覽 + 每檔一行 (券賣→買回 出場原因 淨%)."""
+    L = [f"【每日結算】{summ['date']} {vlabel()}"]
+    if summ.get("no_trade"): return "\n".join(L + ["今日不交易: " + "；".join(summ["no_trade"])])
+    def pct(x): return "-" if x is None else f"{x:+.2f}%"
+    L.append(f"成交 {summ['n_filled']}/{summ['n_picks']} 檔，券賣金額 {summ.get('sim_amount') or 0:,} 元")
+    if summ.get("sim_pnl_net") is not None:
+        L.append(f"淨損益 {summ['sim_pnl_net']:+,} 元 (每筆平均 {pct(summ.get('sim_avg_net_pct'))}，勝率 {(summ.get('sim_win_rate') or 0)*100:.0f}%)")
+    L.append(f"強制回補 {summ.get('n_forced', 0)}、尾盤回補 {summ.get('n_pre_auction', 0)}、觸及回補價 {summ.get('n_touched_force', 0)}")
+    if summ.get("n_unclosed"): L.append(f"⚠ 未平倉 {summ['n_unclosed']} 檔 (估 {summ.get('unclosed_est_pnl_net') or 0:+,} 元)，請到永豐確認")
+    L.append("—")
+    for r in rows:
+        if r.get("skipped"): L.append(f"{r['stock_id']} {r['name']} 略過"); continue
+        if not r.get("sim_sell_px"): L.append(f"{r['stock_id']} {r['name']} 券賣未成交"); continue
+        why = EXIT_NAMES.get(r.get("exit_reason"), r.get("exit_reason") or "")
+        buy = fmt_px(r.get("sim_buy_px")) if r.get("sim_buy_px") else "未成交"
+        L.append(f"{r['stock_id']} {r['name']} {fmt_px(r['sim_sell_px'])}→{buy} {why} {pct(r.get('sim_net_pct'))}")
+    if summ.get("tick_avg_net_pct") is not None: L.append(f"(回測基準 tick 平均 {pct(summ['tick_avg_net_pct'])})")
+    return "\n".join(L)
+
 def publish(date_str, rows, summ):
     token = os.environ.get("HF_TOKEN")
     if not token: log("沒有 HF_TOKEN, 跳過上傳"); return
@@ -374,6 +452,12 @@ def main():
     ap.add_argument("--variant", default=CFG.MAIN_VARIANT, choices=CFG.VARIANTS, help=f"正式={CFG.MAIN_VARIANT}: latest.json/paper/; 其他: latest_<variant>.json, paper_<variant>/, HF db/paper_<variant>/")
     a = ap.parse_args(); set_variant(a.variant)
     for f in a.env_file: load_env_file(f)
+    global NOTIFY_ON
+    nv = [x.strip() for x in (os.environ.get("LINE_NOTIFY_VARIANTS") or CFG.MAIN_VARIANT).split(",") if x.strip()]
+    NOTIFY_ON = (not a.dry) and VARIANT in nv
+    try: import notify_line; line_ok = notify_line.enabled()
+    except Exception: line_ok = False
+    log(f"LINE 通知: {'開' if NOTIFY_ON and line_ok else '關'} (變體 {VARIANT}, 允許 {nv}, token {'有' if line_ok else '無'}{', dry' if a.dry else ''})")
     if not os.environ.get("SINOPAC_API_KEY") or not os.environ.get("SINOPAC_SECRET_KEY"): sys.exit("缺少 SINOPAC_API_KEY / SINOPAC_SECRET_KEY")
     PAPER.mkdir(exist_ok=True); log(f"變體: {VARIANT}, 帳本 {PAPER.name}/, 名單 {SIGNALS_URL.split('/')[-1]}")
     date_str = a.date or now().strftime("%Y-%m-%d")
@@ -383,7 +467,9 @@ def main():
     import shioaji as sj
     api = connect_simulation_only(sj)   # 先登入等名單, 名單一出來就能查合約下單
     d, no_trade, picks = fetch_signals(date_str, wait_until=None if a.dry else at(9, 10), local_csv=a.signals)
-    if picks is None: api.logout(); sys.exit(f"09:10 前沒有等到 {date_str} 的名單, 放棄")
+    if picks is None:
+        notify(f"⚠【開倉失敗】{date_str} {vlabel()}\n09:10 前沒有等到今天的名單，今日不做模擬", wait=True)
+        api.logout(); sys.exit(f"09:10 前沒有等到 {date_str} 的名單, 放棄")
     log(f"名單 {d}: {len(picks)} 檔, no_trade={no_trade}")
     if no_trade and not a.force_trade:
         summ = {"date": date_str, "mode": "simulation", "no_trade": no_trade, "n_picks": len(picks), "n_filled": 0, "n_skipped": 0, "n_forced": 0, "n_touched_force": 0,
@@ -391,6 +477,7 @@ def main():
         json.dump(summ, open(PAPER/f"{date_str}_summary.json", "w"), ensure_ascii=False, indent=1)
         with open(PAPER/f"{date_str}_trades.csv", "w", newline="", encoding="utf-8") as f: f.write("date,stock_id\n")
         log("今日不交易，只記錄"); api.logout()
+        notify(settle_text([], summ), wait=True)
         if a.publish: publish(date_str, [], summ)
         return
 
@@ -419,9 +506,11 @@ def main():
     log(f"已訂閱 {len(pt.contracts)} 檔 tick, 等到 {ENTRY_T[0]:02d}:{ENTRY_T[1]:02d}:{ENTRY_T[2]:02d} 進場 ...")
     sleep_until(at(*ENTRY_T))
     if now() > at(*LATE_ABORT_T):
-        log(f"現在 {now().strftime('%H:%M:%S')} 已超過 {LATE_ABORT_T[0]:02d}:{LATE_ABORT_T[1]:02d}，太晚進場，放棄 (今天不做模擬)"); api.logout(); sys.exit(2)
+        log(f"現在 {now().strftime('%H:%M:%S')} 已超過 {LATE_ABORT_T[0]:02d}:{LATE_ABORT_T[1]:02d}，太晚進場，放棄 (今天不做模擬)")
+        notify(f"⚠【開倉失敗】{d} {vlabel()}\n{now().strftime('%H:%M:%S')} 已超過 {LATE_ABORT_T[0]:02d}:{LATE_ABORT_T[1]:02d}，太晚進場，今日不做模擬", wait=True)
+        api.logout(); sys.exit(2)
     pt.enter()
-    time.sleep(5); pt.refresh_deals_from_status(); snap = pt.push_live("running")
+    time.sleep(5); pt.refresh_deals_from_status(); pt.notify_open(); snap = pt.push_live("running")
     log(f"進場完成 (持有 {snap['n_open']} 檔), 盯盤到 13:26, 每 {LIVE_EVERY//60} 分鐘更新 live.json ...")
     t_exit = at(*EXIT_T); t_pre = at(*PRE_AUCTION_T); last_hb = now(); pre_done = False; pstop_done = False; last_pchk = now()
     while now() < t_exit:
@@ -455,6 +544,7 @@ def main():
     log("結算:", json.dumps(summ, ensure_ascii=False))
     for r in rows: log(f"  {r['stock_id']} {r['name']}: 券賣 {r['sim_sell_px']} 買回 {r['sim_buy_px']} ({r['exit_reason']}) 模擬淨 {r['sim_net_pct']}% | tick VWAP {r['tick_vwap_0901_0903']} 收 {r['tick_last']} 淨 {r['tick_net_pct']}% 高 {r['tick_high']} {r['skipped']}")
     pt.push_live("done")
+    notify(settle_text(rows, summ), wait=True)
     try: api.logout()
     except Exception: pass
     if a.publish: publish(d, rows, summ)

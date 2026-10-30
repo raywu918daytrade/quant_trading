@@ -60,6 +60,10 @@ jobs:
           SINOPAC_API_KEY: ${{ secrets.SINOPAC_API_KEY }}
           SINOPAC_SECRET_KEY: ${{ secrets.SINOPAC_SECRET_KEY }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          # LINE 開倉/平倉/結算通知 (scripts/notify_line.py). 沒設 secrets 就自動略過; 變體預設只送正式, 要影子也送就在 repo Variables 設 LINE_NOTIFY_VARIANTS=sr,base
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
+          LINE_NOTIFY_VARIANTS: ${{ vars.LINE_NOTIFY_VARIANTS }}
         run: |
           set -o pipefail   # Shioaji 登入時會印含身分證字號的 Session Property 行, 濾掉
           D="${{ github.event.inputs.date }}"; V="${{ matrix.variant }}"
