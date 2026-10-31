@@ -12,8 +12,10 @@ LINE Notify 已於 2025-03-31 停止服務, 這裡走 LINE 官方帳號的 Messa
 用法:
   python3 scripts/notify_line.py --env-file ~/.../.env --check          # 驗證 token: 印出官方帳號名稱
   python3 scripts/notify_line.py --env-file ~/.../.env "測試訊息"        # 推一則測試
+  python3 scripts/notify_line.py --env-file ~/.../.env --setup          # 一鍵: 驗證 token → 推測試訊息 → 寫入 GitHub Secrets
+     (.env 只要兩行 LINE_CHANNEL_ACCESS_TOKEN=... 與 LINE_USER_ID=U...; 用 raywu918daytrade 的 gh token 寫 secrets, 值經 stdin 傳給 gh, 不印出也不進 shell 歷史)
 """
-import os, sys
+import os, sys, subprocess
 import requests
 
 API = "https://api.line.me/v2/bot"
@@ -68,10 +70,32 @@ def check() -> bool:
     print("LINE_USER_ID:", "已設定" if uid else "未設定 (Basic settings 頁最下方 Your user ID)")
     return bool(uid)
 
+GH_REPO, GH_USER = "raywu918daytrade/quant_trading", "raywu918daytrade"   # push / secrets 一律用 repo 擁有者帳號
+
+def setup() -> bool:
+    """驗證 token 與 user ID 都能用 (真的推一則測試), 成功才寫進 GitHub Secrets; 任何一步失敗就停, 不寫入."""
+    tok, uid = creds()
+    if not tok or not uid: print("缺 LINE_CHANNEL_ACCESS_TOKEN 或 LINE_USER_ID (放進 --env-file 指定的 .env)"); return False
+    if not uid.startswith("U") or len(uid) != 33: print("LINE_USER_ID 格式不對: 應為 U 開頭 33 碼 (Basic settings 頁最下方 Your user ID, 不是 @ 開頭的 Bot basic ID)"); return False
+    if not check(): return False
+    if not push("✅ quant_trading LINE 通知設定測試\n收到這則代表 token 與 user ID 都正確。\n之後平日會收到 開倉 / 平倉 / 每日結算。"):
+        print("測試訊息送不出去: 確認手機已加該官方帳號為好友, 且 user ID 是同一個 channel 的"); return False
+    print("測試訊息已送出, 寫入 GitHub Secrets ...")
+    try: gh_tok = subprocess.run(["gh", "auth", "token", "--user", GH_USER], capture_output=True, text=True, check=True).stdout.strip()
+    except Exception: print(f"取不到 gh 帳號 {GH_USER} 的 token (gh auth login 該帳號後再跑)"); return False
+    env = {**os.environ, "GH_TOKEN": gh_tok}
+    for name, val in (("LINE_CHANNEL_ACCESS_TOKEN", tok), ("LINE_USER_ID", uid)):
+        r = subprocess.run(["gh", "secret", "set", name, "-R", GH_REPO], input=val, capture_output=True, text=True, env=env)
+        if r.returncode != 0: print(f"寫入 {name} 失敗: {r.stderr.strip()[:200]}"); return False
+        print(f"已寫入 GitHub Secret {name}")
+    print(f"完成。下個平日 08:50 的 Paper trade workflow 起生效 (預設只送正式變體; 影子也要送: gh variable set LINE_NOTIFY_VARIANTS -b sr,base -R {GH_REPO})")
+    return True
+
 def main():
     args = sys.argv[1:]
     while "--env-file" in args:
         i = args.index("--env-file"); load_env_file(args[i + 1]); del args[i:i + 2]
+    if "--setup" in args: sys.exit(0 if setup() else 1)
     if "--check" in args: sys.exit(0 if check() else 1)
     msg = " ".join(args).strip() or "quant_trading LINE 推播測試"
     sys.exit(0 if push(msg) else 1)

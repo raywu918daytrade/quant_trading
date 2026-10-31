@@ -253,9 +253,9 @@ GitHub Actions (平日 UTC 01:01 = 台灣 09:01, .github/workflows/daily_signals
   - 平倉: 盤中強制回補 / 13:24 尾盤回補 / 組合停損，買回成交時各一則 (部分成交 3 秒內合併)，含淨 % 與元。13:26 收盤回補不個別送，併入結算。
   - 每日結算: 13:35 一則 (成交檔數、淨損益、勝率、強制回補數、未平倉警示、每檔 券賣→買回 出場原因 淨%)；今日不交易也送一則。
   - 異常: 委託被拒 (op_code ≠ 00)、09:10 前沒等到名單、超過 09:04 放棄進場。
-  - 設定: LINE Developers 建 Messaging API channel → 發 long-lived channel access token、Basic settings 最下方抄 Your user ID、手機加該官方帳號好友 → GitHub Secrets 加 `LINE_CHANNEL_ACCESS_TOKEN`、`LINE_USER_ID`。沒設就自動略過，不影響下單。
+  - 設定: LINE Developers 建 Messaging API channel → 發 long-lived channel access token、Basic settings 最下方抄 Your user ID (U 開頭 33 碼)、手機加該官方帳號好友 → 兩個值寫進一個 .env (`LINE_CHANNEL_ACCESS_TOKEN=...`、`LINE_USER_ID=U...`) → `python3 scripts/notify_line.py --env-file <.env> --setup`：驗證 token、推一則測試到 LINE，都成功才用 raywu918daytrade 的 gh token 寫入 GitHub Secrets。沒設就自動略過，不影響下單。
   - 預設只送正式變體；要影子也送，在 repo Settings → Variables 加 `LINE_NOTIFY_VARIANTS=sr,base`。免費方案每月約 200 則，只送正式每天約 2~4 則。`--dry` 不送。
-  - 驗證: `python3 scripts/notify_line.py --env-file <.env> --check` (印官方帳號名稱與本月額度)、`python3 scripts/notify_line.py --env-file <.env> "測試"`。
+  - 只驗證不寫 secrets: `python3 scripts/notify_line.py --env-file <.env> --check` (印官方帳號名稱與本月額度)；推任意訊息: `python3 scripts/notify_line.py --env-file <.env> "測試"`。
 
 ## 延伸回測 2020~2026 (2026-10-23) — `scripts/18_extended_backtest.py` + `19_build_m1_entry_ext.py` → `stats/extended_backtest.md`
 D1 抓到 2018 (2018~2019 只當訓練)、M1 抓到 2020，池版模型 B 按季 walk-forward 新訓 2020Q1~2024Q3 (`models/ext/`)，2024Q4 起沿用正式模型；規則與定案完全相同 (跳空≤4%、大盤跳空≥−1%、股價≤300、非週一、+8% 強制回補、鎖漲停隔日回補 −7%、300 萬每檔 60 萬填滿、成本 0.23%)。
