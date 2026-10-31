@@ -4,3 +4,4 @@ lightgbm>=4.3
 huggingface_hub>=0.25
 requests
 numpy
+tabulate
