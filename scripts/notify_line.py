@@ -22,6 +22,9 @@ API = "https://api.line.me/v2/bot"
 MAX_LEN = 5000   # LINE text message 上限
 
 def load_env_file(path):
+    path = os.path.expanduser(path)
+    if not os.path.isfile(path):
+        sys.exit(f"找不到 .env 檔: {path}\n專案根目錄已有範本 .env, 填好兩個值後執行: python3 scripts/notify_line.py --env-file .env --setup")
     for line in open(path, encoding="utf-8", errors="ignore"):
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line: continue
