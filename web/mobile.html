@@ -62,6 +62,16 @@ details summary{cursor:pointer;color:var(--accent);font-size:14px}
   <details id="paperDetails" style="display:none"><summary>各檔成交</summary>
     <div class="wrap"><table><thead><tr><th>代號</th><th>名稱</th><th>訊號</th><th>券賣</th><th>價差%</th><th>買回</th><th>出場</th><th>模擬淨%</th><th>tick淨%</th></tr></thead><tbody id="paperBody"></tbody></table></div>
   </details>
+  <div id="recBox" style="display:none;margin-top:16px">
+    <h2 style="margin:0 0 8px">對帳與上線門檻 <small id="recMeta" class="muted"></small></h2>
+    <div id="recBanner" class="banner wait"></div>
+    <div class="cards" id="recCards"></div>
+    <details open><summary class="muted" style="font-size:12px">六項門檻 (只算「即時」日子)</summary>
+      <div id="recGate" class="list" style="margin-top:6px"></div></details>
+    <details style="margin-top:6px"><summary class="muted" style="font-size:12px">即時逐日: D1 結算 / 真實 tick / 模擬</summary>
+      <div class="wrap" style="margin-top:6px"><table><thead><tr><th>日期</th><th>D1%</th><th>tick%</th><th>模擬%</th><th>滑價%</th><th>事件</th></tr></thead><tbody id="recDaily"></tbody></table></div></details>
+    <p class="muted" style="margin:8px 0 0">即時 = 名單 09:01 盤中產生且在模型訓練期之後，是唯一的實盤證據；9 月的回放在訓練期內 (in-sample)，不計。D1 = 回測假設結算 (開盤 +0.03% 進)；tick = 真實成交 09:01~09:03 VWAP 進、依規則出；模擬 = 永豐模擬撮合 (與 tick 差距可達 ±3%，僅參考)。滑價 = 名單開盤價 − 成交價，正值 = 賣得比訊號低 (不利)。每天 09:01 結算後與 13:35 模擬結束後更新 (scripts/reconcile.py)。</p>
+  </div>
   </div>
   <div id="pane-list2">
   <h2>今日名單</h2>
@@ -190,9 +200,28 @@ function annotateFromHistory(date){
   annotateCards(rows.map(r => ({sid: r.stock_id, chip: ({forced:"已強制回補", close:"已收盤回補", lock:"鎖漲停隔日", lock_pending:"鎖漲停"})[r.exit_reason] || r.exit_reason, px: +r.exit, pct: +r.net_pct, live: false})));
 }
 const slip = r => (+r.open_signal && +r.sim_sell_px) ? (+r.sim_sell_px / +r.open_signal - 1) * 100 : null;   // 券賣成交 vs 名單訊號價 (%)
+let REC = null;   // reconcile.json (對帳與上線門檻), 依變體
+async function loadReconcile(){
+  const PAPER = paperBase(VARIANT === "cmp" ? "main" : VARIANT);
+  try{
+    const j = await fetchJ(PAPER + "reconcile.json"); REC = j; const g = j.gate, lv = j.live;
+    const pct = v => (v==null || isNaN(v)) ? "–" : ((v>0?"+":"") + fmt(v) + "%");
+    const st = (s, k) => (s && s.n) ? pct(s[k]) : "–";
+    $("recBox").style.display = ""; $("recMeta").textContent = "更新 " + j.as_of;
+    $("recBanner").className = "banner " + (g.pass ? "go" : "wait"); $("recBanner").textContent = (g.pass ? "✅ " : "⏳ ") + g.verdict;
+    $("recCards").innerHTML = [
+      ["即時交易日 / 不交易日", `${lv.days} / ${lv.no_trade_days}`], ["tick 累計 (真實成交)", st(lv.tick, "cum") + (lv.tick && lv.tick.n ? ` <span class="k">${lv.tick.n} 天</span>` : "")],
+      ["D1 累計 (回測假設)", st(lv.d1, "cum")], ["模擬累計 (僅參考)", st(lv.sim, "cum")],
+      ["進場滑價 tick / 模擬", `${pct(lv.entry_slip_tick_mean)} / ${pct(lv.entry_slip_sim_mean)}`], ["操作事件 近20日 / 全部", `${lv.ops_recent} / ${lv.ops_total}`],
+    ].map(([k,v]) => `<div class="card"><div class="k">${k}</div><div class="v ${/^[+-]/.test(v) && !/滑價/.test(k) ? (v.startsWith("+")?"pos":"neg") : ""}">${v}</div></div>`).join("");
+    $("recGate").innerHTML = g.items.map(x => `<div class="pick" style="padding:8px 12px"><div class="top"><span><b>${x.pass ? "✅" : "❌"} ${x.id} ${x.name}</b></span><span style="font-variant-numeric:tabular-nums;text-align:right">${x.actual}</span></div><div class="muted" style="font-size:12px;margin-top:2px">${x.rule}</div></div>`).join("");
+    const live = (j.daily || []).filter(r => r.kind === "即時").sort((a,b) => b.date.localeCompare(a.date));
+    $("recDaily").innerHTML = live.map(r => `<tr><td>${r.date.slice(5)}${r.no_trade ? " <span class='muted' style='font-size:11px'>不交易</span>" : ""}</td><td class="${pctCls(r.d1_ret_pct)}">${pct(r.d1_ret_pct)}</td><td class="${pctCls(r.tick_ret_pct)}">${pct(r.tick_ret_pct)}</td><td class="${pctCls(r.sim_ret_pct)}">${pct(r.sim_ret_pct)}</td><td>${pct(r.entry_slip_tick_pct)}</td><td style="white-space:normal;text-align:left;font-size:11px">${r.ops || ""}</td></tr>`).join("") || `<tr><td colspan="6" class="muted">尚無即時日子</td></tr>`;
+  }catch(e){ REC = null; $("recBox").style.display = "none"; }
+}
 async function loadPaper(date){
   const PAPER = paperBase(VARIANT === "cmp" ? "main" : VARIANT);
-  loadLive(date); if(VARIANT === "cmp") loadCompare(date);
+  loadLive(date); if(VARIANT === "cmp") loadCompare(date); loadReconcile();
   try{
     const r = await fetch(PAPER + (date ? `${date}_summary.json` : "latest.json") + "?t=" + Date.now(), {cache:"no-store"});
     if(!r.ok) throw 0;
@@ -287,6 +316,11 @@ async function loadHistory(){
       .map(([k,val]) => `<div class="card"><div class="k">${k}</div><div class="v ${/^[+-]/.test(val) ? (val.startsWith("+")?"pos":"neg") : ""}" style="font-size:17px">${val}</div></div>`).join("");
     drawEquity(eq); drawCalendar(D);
     $("histMeta").textContent = `${D[D.length-1].date} ~ ${D[0].date}`;
+    try{   // 累計含回放 (9 月在模型訓練期內); 另標出真正的實盤證據: 即時日子
+      const j = REC && REC.variant === (VARIANT === SHADOW ? SHADOW : REC.variant) ? REC : await fetchJ(paperBase(VARIANT === SHADOW ? SHADOW : "main") + "reconcile.json");
+      const k = j.by_kind || {}, lv = k["即時"], is = k["回放·訓練期"], pct = v => (v==null || isNaN(v)) ? "–" : ((v>0?"+":"") + fmt(v) + "%");
+      if(lv) $("histCards").insertAdjacentHTML("beforeend", `<div class="card" style="grid-column:1/-1;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><div><div class="k">其中「即時」(實盤證據, ${lv.first || "–"} 起)</div><div class="v ${pctCls(lv.d1 && lv.d1.cum)}" style="font-size:17px">${pct(lv.d1 && lv.d1.cum)} <span class="k">${lv.trade_days} 天</span></div></div><div><div class="k">「回放·訓練期」(9 月, in-sample, 不算證據)</div><div class="v" style="font-size:17px;color:var(--muted)">${pct(is && is.d1 && is.d1.cum)} <span class="k">${is ? is.trade_days : 0} 天</span></div></div></div>`);
+    }catch(e){}
     $("histBody").innerHTML = D.map(r => `<tr data-d="${r.date}" style="cursor:pointer"><td>${r.date.slice(5)}${r.no_trade ? " <span class='chip'>不交易</span>" : ""}</td><td>${r.n}</td><td>${r.wins}</td><td class="${pctCls(+r.pnl)}">${money(+r.pnl)}</td><td class="${pctCls(+r.ret_pct)}">${(+r.ret_pct>0?"+":"") + fmt(+r.ret_pct)}</td></tr>`).join("");
     document.querySelectorAll("#histBody tr").forEach(tr => tr.onclick = () => showHistDay(tr.dataset.d));
     if($("liveBox").style.display === "none") annotateFromHistory($("dateIn").value);

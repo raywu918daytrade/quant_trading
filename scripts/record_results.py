@@ -50,13 +50,13 @@ def main():
                 else: exit_px = float(row.close); reason = "close"
                 net = entry/exit_px - 1 - COST; pnl += a_*net; amt += a_
                 rows.append({"date": d, "stock_id": p["stock_id"], "name": p.get("name",""), "rank": p.get("rank"), "lots": lots, "amount": int(a_), "prev_close": pc, "entry": round(entry,2), "exit": round(exit_px,2), "high": float(row.high), "exit_reason": reason, "net_pct": round(net*100,2), "pnl": int(round(a_*net))})
-        drow = {"date": d, "variant": a.variant, "no_trade": "|".join(j.get("no_trade", [])), "n": len(rows), "amount": int(amt), "wins": sum(1 for r in rows if r["pnl"]>0), "pnl": int(round(pnl)), "ret_pct": round(pnl/CAP*100, 3), "model": j.get("model","")}
+        drow = {"date": d, "variant": a.variant, "no_trade": "|".join(j.get("no_trade", [])), "n": len(rows), "amount": int(amt), "wins": sum(1 for r in rows if r["pnl"]>0), "pnl": int(round(pnl)), "ret_pct": round(pnl/CAP*100, 3), "model": j.get("model",""), "source": j.get("source","")}
         hist += rows; daily.append(drow); print(f"  {d}: {len(rows)} 檔, 損益 {drow['pnl']:+,} 元 ({drow['ret_pct']:+.2f}%)" + (f" [不交易: {drow['no_trade']}]" if drow["no_trade"] else ""))
     if a.dry: print("dry run, 不上傳"); return
     if not todo: print("沒有新的要寫"); return
     def to_csv(rows, keys):
         s = io.StringIO(); w = csv.DictWriter(s, fieldnames=keys, extrasaction="ignore"); w.writeheader(); [w.writerow(r) for r in rows]; return s.getvalue().encode("utf-8")
-    hk = ["date","stock_id","name","rank","lots","amount","prev_close","entry","exit","high","exit_reason","net_pct","pnl"]; dk = ["date","variant","no_trade","n","amount","wins","pnl","ret_pct","model"]
+    hk = ["date","stock_id","name","rank","lots","amount","prev_close","entry","exit","high","exit_reason","net_pct","pnl"]; dk = ["date","variant","no_trade","n","amount","wins","pnl","ret_pct","model","source"]   # source: "TWSE MIS" = 即時, "歷史 D1 open" = 回放 (2026-10-31 起; 舊列空白)
     api.create_commit(repo_id=REPO, repo_type="dataset", commit_message=f"history{sfx}: +{len(todo)} days", operations=[
         CommitOperationAdd(f"db/signals/{hist_name}", to_csv(sorted(hist, key=lambda r: (r["date"], int(r.get("rank") or 0))), hk)),
         CommitOperationAdd(f"db/signals/{daily_name}", to_csv(sorted(daily, key=lambda r: r["date"]), dk))])

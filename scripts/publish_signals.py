@@ -38,7 +38,7 @@ def build_json(date: str, sfx: str = "") -> dict:
     tz8 = timezone(timedelta(hours=8))
     return {"date": meta["date"], "variant": meta.get("variant", "base"), "no_trade": meta.get("no_trade", []), "mkt_gap": meta.get("mkt_gap"),
             "n_picks": len(picks), "pool_n": pool_n, "total_amount": int(sum(p["amount"] for p in picks)),
-            "source": meta.get("source"), "model": meta.get("model"),
+            "source": meta.get("source"), "model": meta.get("model"), "daytrade_filter": meta.get("daytrade_filter"),
             "published_at": datetime.now(tz8).strftime("%Y-%m-%d %H:%M:%S +0800"), "picks": picks}
 
 def main():

@@ -8,6 +8,16 @@
         "scripts/webapp.py"
       ],
       "port": 8787
+    },
+    {
+      "name": "static-root",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8790"
+      ],
+      "port": 8790
     }
   ]
 }

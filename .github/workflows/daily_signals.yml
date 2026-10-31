@@ -71,6 +71,13 @@ jobs:
         run: |
           python3 scripts/record_results.py || true
           python3 scripts/record_results.py --variant base || true
+      - name: Reconcile settled lists vs paper fills vs real ticks, go-live gate (db/paper/reconcile.*)
+        if: always() && github.event.inputs.date == ''
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python3 scripts/reconcile.py --publish --quiet || true
+          python3 scripts/reconcile.py --publish --quiet --variant base || true
       - name: Build 5-min bars for published lists (bars/<date>.json, from HF db/m1)
         if: always()
         env:
