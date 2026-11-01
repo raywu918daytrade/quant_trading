@@ -103,7 +103,7 @@ if __name__ == "__main__":
     for nm, rl in rules.items():
         if rl is None: continue
         mode, X, cut, m = rl; e = EV[(EV["mode"] == mode) & (EV.X == X) & (EV.t2 < cut)]
-        ex = (m*e.w*e.add).groupby(e.date).sum().reindex(days, fill_value=0.0)
+        ex = (m*e.w*e["add"]).groupby(e.date).sum().reindex(days, fill_value=0.0)
         DR[nm] = D.base + ex; XC[nm] = (m*e.w).groupby(e.date).sum().reindex(days, fill_value=0.0)*CAP/1e4
     DR = pd.DataFrame(DR)
     def stats(nm, idx, lab):
@@ -113,7 +113,7 @@ if __name__ == "__main__":
              "t": dd.mean()/dd.std()*np.sqrt(len(dd)) if dd.std() > 0 else np.nan}
         if nm != "現行":
             mode, X, cut, m = rules[nm]; e = EV[(EV["mode"] == mode) & (EV.X == X) & (EV.t2 < cut) & EV.date.isin(idx)]
-            o.update({"觸發占筆數%": len(e)/ntr[lab]*100, "加碼段每筆淨%": e.add.mean()*100, "加碼段勝率%": (e.add > 0).mean()*100,
+            o.update({"觸發占筆數%": len(e)/ntr[lab]*100, "加碼段每筆淨%": e["add"].mean()*100, "加碼段勝率%": (e["add"] > 0).mean()*100,
                       "額外資金 平均(萬)": XC[nm].loc[idx].mean(), "額外資金 最大(萬)": XC[nm].loc[idx].max()})
         return o
     L = []; P = lambda x="": L.append(str(x))
@@ -131,7 +131,7 @@ if __name__ == "__main__":
             e = EV[(EV["mode"] == mode) & (EV.X == X)]
             row = {"規則": f"{mode} {X*100:g}%"}
             for lab, m in (("IS", ~e.oos), ("OOS", e.oos)):
-                x = e[m]; row.update({f"{lab} 觸發占筆數%": len(x)/ntr[lab]*100, f"{lab} 加碼段淨%": x.add.mean()*100, f"{lab} 勝率%": (x.add > 0).mean()*100,
+                x = e[m]; row.update({f"{lab} 觸發占筆數%": len(x)/ntr[lab]*100, f"{lab} 加碼段淨%": x["add"].mean()*100, f"{lab} 勝率%": (x["add"] > 0).mean()*100,
                                       f"{lab} 這些單原部位淨%": x.orig.mean()*100})
             row["加碼時間中位"] = tm(int(e.t2.median())); rows.append(row)
     P(pd.DataFrame(rows).set_index("規則").round(3).to_markdown())
