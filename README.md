@@ -295,7 +295,7 @@ D1 抓到 2018 (2018~2019 只當訓練)、M1 抓到 2020，池版模型 B 按季
 每天 09:01 名單 workflow 在 D1 更新、名單發布後執行: 把「已發布但還沒結算」的日子用 D1 逐檔結算 (進場開盤 +0.03%、high ≥ 昨收×1.08 → 強制價、否則收盤價；收盤鎖漲停 → 隔日開盤 −7%；成本 0.23%)，每檔一列追加到 `history.csv`、每天一行到 `history_daily.csv`。只記當天真的發布過的名單，換模型也接續記錄 (每行有 `model` 欄位可區分)，純追加、沒有刪除功能。手機頁「交易紀錄」區顯示累積損益、每日列表、點開看各檔；正式與影子各自一份。
 
 ## 影子: 每天只做一支 (2026-11-01) — `scripts/record_pick1.py` → HF `db/signals/history_pick1.csv`
-依 `stats/pick_one.md` (scripts/45_pick_one.py): 正式名單當天池內可交易的前 10 名，分數 = 名單排名百分位 + 2 × 今日跳空百分位，選最高 1 支 (平手取排名前)，60 萬整張，用與 record_results 相同的 D1 規則結算；每天一列並記同日前 10 名平均與第 1 名，`excess_pct` = 選股規則比隨便選多賺多少。回測樣本外 (2024~) 每筆 0.97% vs 第 1 名 0.71% vs 隨機 0.52%。reconcile.md 第 2b 節與手機頁「交易紀錄」顯示累積勝率、每筆期望值、平均賺賠、MDD、近 60 天。reconcile 另新增每筆期望值與最近 60 個即時日滾動數字。
+依 `stats/pick_one.md` (scripts/45_pick_one.py): 正式名單當天池內可交易的前 10 名，分數 = 名單排名百分位 + 2 × 今日跳空百分位，選最高 1 支 (平手取排名前)，60 萬整張，用與 record_results 相同的 D1 規則結算；每天一列並記同日前 10 名平均與第 1 名，`excess_pct` = 選股規則比隨便選多賺多少。回測樣本外 (2024~) 每筆 0.97% vs 第 1 名 0.71% vs 隨機 0.52%。reconcile.md 第 2b 節顯示；手機頁上方「只做一支」頁籤: 名單分頁即時算出當天選哪支 (讀 `<date>_pool.csv`, 同公式) 與 10 名候選分數，紀錄分頁顯示累積勝率、每筆期望值、平均賺賠、MDD、近 60 天。reconcile 另新增每筆期望值與最近 60 個即時日滾動數字。
 
 ## 手機頁「補跑這天」代理 (2026-10-23) — `trigger/worker.js` (Cloudflare Workers, 免費、不休眠)
 一次設定: Cloudflare Dashboard → Workers & Pages → Create → Hello World → 名稱 `quant-trigger` → Edit code → 貼 `trigger/worker.js` → Deploy → Settings → Variables and Secrets 加 `GH_TOKEN` (GitHub fine-grained token，只給 quant_trading 的 Actions: Read and write，設 Secret) 與 `API_PIN` (自訂)。網址形如 `https://quant-trigger.<子網域>.workers.dev`。

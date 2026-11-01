@@ -11,7 +11,7 @@ import pandas as pd, requests
 sys.path.insert(0, str(Path(__file__).resolve().parent)); import config as CFG
 from record_results import settle, REPO, BASE_URL, ROOT
 N_CAND, POS, HIST = 10, 600_000, "history_pick1.csv"
-KEYS = ["date","no_trade","stock_id","name","rank","gap_pct","score","n_cand","lots","amount","entry","exit","exit_reason","net_pct","pnl",
+KEYS = ["date","no_trade","stock_id","name","rank","prev_close","gap_pct","score","n_cand","lots","amount","entry","exit","exit_reason","net_pct","pnl",
         "top10_mean_pct","rank1_stock","rank1_net_pct","excess_pct","model","source"]
 
 def pick_one(cand: pd.DataFrame) -> pd.DataFrame:
@@ -50,7 +50,7 @@ def main():
         el["entry"], el["exit"], el["exit_reason"], el["net"] = zip(*res)
         P = pick_one(el); p = P.iloc[0]; r1 = el.iloc[0]
         lots = int(POS // (p.entry*1000)); amt = p.entry*1000*lots
-        row.update(stock_id=p.stock_id, name=p["name"], rank=int(p["rank"]), gap_pct=round(p.gap*100, 2), score=round(p.score, 3), n_cand=len(el), lots=lots, amount=int(amt),
+        row.update(stock_id=p.stock_id, name=p["name"], rank=int(p["rank"]), prev_close=round(float(p.prev_close), 2), gap_pct=round(p.gap*100, 2), score=round(p.score, 3), n_cand=len(el), lots=lots, amount=int(amt),
                    entry=round(p.entry, 2), exit=round(p.exit, 2), exit_reason=p.exit_reason, net_pct=round(p.net*100, 3), pnl=int(round(amt*p.net)),
                    top10_mean_pct=round(el.net.mean()*100, 3), rank1_stock=r1.stock_id, rank1_net_pct=round(r1.net*100, 3), excess_pct=round((p.net - el.net.mean())*100, 3))
         hist.append(row)

@@ -35,7 +35,7 @@ details summary{cursor:pointer;color:var(--accent);font-size:14px}
 <header><h1>當沖做空名單</h1></header>
 <main>
   <div class="datebar"><button id="btnPrev" class="sec nav" title="上一個交易日 (←)">◀</button><input type="date" id="dateIn"><button id="btnNext" class="sec nav" title="下一個交易日 (→)">▶</button><button id="btnDate">載入</button><button id="btnLatest" class="sec">回最新</button><span id="status" class="muted"></span></div>
-  <div class="seg" id="seg"><button data-v="main" class="on">正式：支撐壓力</button><button data-v="base">影子：基準</button><button data-v="cmp">對照</button></div>
+  <div class="seg" id="seg"><button data-v="main" class="on">正式：支撐壓力</button><button data-v="base">影子：基準</button><button data-v="cmp">對照</button><button data-v="pick1">只做一支</button></div>
 
   <div id="pane-list">
   <div id="cmpBox" style="display:none">
@@ -100,7 +100,8 @@ details summary{cursor:pointer;color:var(--accent);font-size:14px}
 <footer>資料來源: HF dataset raywu918daytrade/daytrade · db/signals · 由 GitHub Actions 每個平日 09:01 自動產生</footer>
 <script>
 const BASE = "https://huggingface.co/datasets/raywu918daytrade/daytrade/resolve/main/db/signals/";
-let VARIANT = "main";   // main | <SHADOW> | cmp
+let VARIANT = "main";   // main | <SHADOW> | cmp | pick1 (影子策略: 正式名單前 10 名只選 1 支)
+const baseV = () => (VARIANT === "cmp" || VARIANT === "pick1") ? "main" : VARIANT;   // 對照與只做一支都讀正式名單
 const SHADOW = "base";   // 與 scripts/config.py SHADOW_VARIANT 一致; "main" = 正式 (不帶後綴)
 const sigName = (date, v) => (date ? `${date}${v===SHADOW?"_"+SHADOW:""}.json` : (v===SHADOW ? `latest_${SHADOW}.json` : "latest.json"));
 const paperBase = v => "https://huggingface.co/datasets/raywu918daytrade/daytrade/resolve/main/db/" + (v===SHADOW ? "paper_"+SHADOW : "paper") + "/";
@@ -115,7 +116,7 @@ function pctCls(v){ return v>0 ? "pos" : v<0 ? "neg" : ""; }
 let loadSeq = 0;
 async function load(date){
   const seq = ++loadSeq;   // 連按上一日/下一日時只顯示最後一次
-  const v = VARIANT === "cmp" ? "main" : VARIANT;
+  const v = baseV();
   const url = SRC ? SRC : BASE + sigName(date, v) + "?t=" + Date.now();
   $("banner").className="banner wait"; $("banner").textContent="載入中…"; $("status").textContent = "載入中…"; if(date) $("dateIn").value = date;
   let j;
@@ -135,16 +136,34 @@ async function load(date){
     }
     return;
   }
+  if(VARIANT === "pick1" && !SRC) j = await pick1View(j);
   if(seq !== loadSeq) return;
   render(j); setBusy(false);
   $("status").textContent = `✓ 已載入 ${j.date} 的名單` + (date ? "" : " (最新)");
   window.scrollTo({top:0, behavior:"smooth"});
 }
 
+// ---- 只做一支: 與 scripts/record_pick1.py 相同 — 池內可交易前 10 名, 分數 = 名單排名百分位 + 2 × 跳空百分位, 平手取排名前 ----
+const tickOf = px => px < 10 ? .01 : px < 50 ? .05 : px < 100 ? .1 : px < 500 ? .5 : px < 1000 ? 1 : 5;
+const tickUp = px => { const t = tickOf(px); return Math.round(Math.ceil(px/t - 1e-9)*t*100)/100; };
+const tickDn = px => { const t = tickOf(px); return Math.round(Math.floor(px/t + 1e-9)*t*100)/100; };
+const pctRank = a => a.map(v => { const lt = a.filter(x => x < v).length, eq = a.filter(x => x === v).length; return (lt + (eq+1)/2) / a.length; });
+async function pick1View(j){
+  let pool = [];
+  try{ pool = (await fetchCsv(BASE + `${j.date}_pool.csv`)).filter(r => String(r.elig).toLowerCase() === "true").sort((a,b) => +a.rank_all - +b.rank_all).slice(0, 10); }catch(e){}
+  if(!pool.length) return {...j, picks: [], n_picks: 0, total_amount: 0, _cands: []};
+  const pr = pctRank(pool.map((r,i) => -(i+1))), pg = pctRank(pool.map(r => +r.gap));
+  const C = pool.map((r,i) => ({...r, rank: i+1, score: pr[i] + 2*pg[i]})).sort((a,b) => b.score - a.score || a.rank - b.rank);
+  const c = C[0], open = +c.open, pc = +c.prev_close, lots = Math.floor(600000 / (open*1000));
+  const p = {stock_id: c.stock_id, name: (c.name||"").replace(/^\ufeff/, ""), rank: c.rank, pred_pct: +c.pred*100, open, prev_close: pc, gap_pct: +c.gap*100, atr20_pct: +c.atr20*100,
+             lots, amount: lots*open*1000, force_cover: tickUp(pc*1.08), limit_up: tickDn(pc*1.1)};
+  return {...j, picks: [p], n_picks: 1, total_amount: p.amount, _cands: C};
+}
+
 function render(j){
   const noTrade = (j.no_trade||[]).length>0;
   $("banner").className = "banner " + (noTrade ? "stop" : "go");
-  $("banner").textContent = (VARIANT===SHADOW ? "[影子] " : "") + (noTrade ? ("今日不交易: " + j.no_trade.join("；") + " (名單僅供參考)") : `可交易 · ${j.date} (週${dowName(j.date)})`);
+  $("banner").textContent = (VARIANT===SHADOW ? "[影子] " : VARIANT==="pick1" ? "[只做一支] " : "") + (noTrade ? ("今日不交易: " + j.no_trade.join("；") + " (名單僅供參考)") : `可交易 · ${j.date} (週${dowName(j.date)})`);
   $("cDate").textContent = j.date.slice(5).replace("-", "/") + " 週" + dowName(j.date);
   const mg = j.mkt_gap==null ? null : j.mkt_gap*100;
   $("cMkt").textContent = mg==null ? "–" : (mg>0?"+":"") + fmt(mg) + "%"; $("cMkt").className = "v " + pctCls(mg);
@@ -166,6 +185,7 @@ function render(j){
       <div class="livebar" id="lv_${p.stock_id}" style="display:none;margin-top:8px;display:none;justify-content:space-between;align-items:center;font-size:13px"></div>
       <div class="kwrap" id="k_${p.stock_id}" style="display:none;margin-top:8px"><canvas width="640" height="220" style="width:100%;height:auto;display:block"></canvas><div class="muted" style="font-size:11px;margin-top:2px">5 分 K · 灰點線昨收 · 藍線開盤(進場參考) · 橘虛線 +8% 強制回補</div></div>
     </div>`).join("") : `<div class="pick muted">沒有符合條件的候選</div>`;
+  if(j._cands && j._cands.length) $("picks").insertAdjacentHTML("beforeend", `<div class="muted" style="font-size:12px;margin:8px 0 4px">候選 (池內可交易前 ${j._cands.length} 名) 依分數排序 · 分數 = 名單排名百分位 + 2 × 跳空百分位 · 部位 60 萬</div><div class="wrap"><table><thead><tr><th>分數</th><th>代號</th><th>名稱</th><th>名單排名</th><th>跳空%</th></tr></thead><tbody>${j._cands.map((r,i) => `<tr style="${i ? "" : "font-weight:700"}"><td>${fmt(r.score)}</td><td>${r.stock_id}</td><td>${r.name||""}</td><td>${r.rank}</td><td class="${pctCls(+r.gap)}">${+r.gap>0?"+":""}${fmt(+r.gap*100)}</td></tr>`).join("")}</tbody></table></div>`);
   CUR_PICKS = picks; BARS = null;
   document.querySelectorAll(".kbtn").forEach(a => a.onclick = ev => { ev.preventDefault(); toggleK(a.dataset.sid, a); });
   $("tbody").innerHTML = picks.map(p => `<tr><td>${p.stock_id}</td><td>${p.name ?? ""}</td><td>${fmt(p.open)}</td><td>${p.lots}</td><td>${money(p.amount)}</td><td>${fmt(p.force_cover)}</td><td>${fmt(p.limit_up)}</td></tr>`).join("");
@@ -175,7 +195,7 @@ function render(j){
 }
 
 async function loadLive(date){
-  const PAPER = paperBase(VARIANT === "cmp" ? "main" : VARIANT);
+  const PAPER = paperBase(baseV());
   try{
     const r = await fetch(PAPER + "live.json?t=" + Date.now(), {cache:"no-store"}); if(!r.ok) throw 0;
     const L = await r.json();
@@ -202,7 +222,7 @@ function annotateFromHistory(date){
 const slip = r => (+r.open_signal && +r.sim_sell_px) ? (+r.sim_sell_px / +r.open_signal - 1) * 100 : null;   // 券賣成交 vs 名單訊號價 (%)
 let REC = null;   // reconcile.json (對帳與上線門檻), 依變體
 async function loadReconcile(){
-  const PAPER = paperBase(VARIANT === "cmp" ? "main" : VARIANT);
+  const PAPER = paperBase(baseV());
   try{
     const j = await fetchJ(PAPER + "reconcile.json"); REC = j; const g = j.gate, lv = j.live;
     const pct = v => (v==null || isNaN(v)) ? "–" : ((v>0?"+":"") + fmt(v) + "%");
@@ -220,13 +240,13 @@ async function loadReconcile(){
   }catch(e){ REC = null; $("recBox").style.display = "none"; }
 }
 async function loadPaper(date){
-  const PAPER = paperBase(VARIANT === "cmp" ? "main" : VARIANT);
+  const PAPER = paperBase(baseV());
   loadLive(date); if(VARIANT === "cmp") loadCompare(date); loadReconcile();
   try{
     const r = await fetch(PAPER + (date ? `${date}_summary.json` : "latest.json") + "?t=" + Date.now(), {cache:"no-store"});
     if(!r.ok) throw 0;
     const s = await r.json();
-    $("paperDate").textContent = s.date + (s.no_trade && s.no_trade.length ? " · 今日不交易" : "");
+    $("paperDate").textContent = (VARIANT === "pick1" ? "(只做一支沒有模擬下單, 以下為正式組) " : "") + s.date + (s.no_trade && s.no_trade.length ? " · 今日不交易" : "");
     const pct = v => v==null ? "–" : ((v>0?"+":"") + fmt(v) + "%");
     $("paperCards").innerHTML = [
       ["成交 / 名單", `${s.n_filled} / ${s.n_picks}`], ["模擬平均淨報酬", pct(s.sim_avg_net_pct)],
@@ -267,7 +287,7 @@ async function loadCompare(date){
   }catch(e){ $("cmpBox").style.display = "none"; }
 }
 document.querySelectorAll("#seg button").forEach(b => b.onclick = () => { VARIANT = b.dataset.v; document.querySelectorAll("#seg button").forEach(x => x.classList.toggle("on", x === b)); $("cmpBox").style.display = "none"; try{ localStorage.setItem("variant", VARIANT); }catch(e){} load($("dateIn").value && $("dateIn").value !== lastLatest ? $("dateIn").value : null); });
-try{ const v = localStorage.getItem("variant"); if(v && ["main",SHADOW,"cmp"].includes(v)){ VARIANT = v; document.querySelectorAll("#seg button").forEach(x => x.classList.toggle("on", x.dataset.v === v)); } }catch(e){}
+try{ const v = localStorage.getItem("variant"); if(v && ["main",SHADOW,"cmp","pick1"].includes(v)){ VARIANT = v; document.querySelectorAll("#seg button").forEach(x => x.classList.toggle("on", x.dataset.v === v)); } }catch(e){}
 let CUR_PICKS = [], BARS = null, BARS_DATE = null;
 async function toggleK(sid, a){
   const box = $("k_" + sid); if(box.style.display !== "none"){ box.style.display = "none"; a.textContent = "分K ▾"; return; }
@@ -298,7 +318,33 @@ function drawK(cv, bars, p){
   const last = bars[bars.length-1][4]; ctx.fillStyle = fg; ctx.fillText("收 " + last.toFixed(2) + " (" + ((last/p.open-1)*100).toFixed(2) + "%)", W-padR-110, padT+12);
 }
 let HIST = [];
+async function loadPick1History(){   // 只做一支: scripts/record_pick1.py → history_pick1.csv (每天 1 列, 60 萬, D1 結算)
+  const empty = msg => { $("histCards").innerHTML = `<div class="card" style="grid-column:1/-1"><div class="k">${msg}</div></div>`; $("histBody").innerHTML = ""; $("histMeta").textContent = ""; $("equityBox").style.display = "none"; $("calBox").innerHTML = ""; };
+  try{
+    const all = (await fetchCsv(BASE + "history_pick1.csv")).filter(r => r.date).sort((a,b) => a.date.localeCompare(b.date));
+    if(!all.length){ empty("尚無紀錄 (每個交易日 09:01 流程結算前一天後自動補上)"); HIST = []; return; }
+    const P = all.filter(r => r.net_pct !== "" && r.net_pct != null);
+    HIST = P.map(r => ({...r, rank: r.rank}));
+    const D = all.map(r => { const tr = r.net_pct !== "" && r.net_pct != null; return {date: r.date, no_trade: r.no_trade, n: tr ? 1 : 0, wins: tr && +r.pnl > 0 ? 1 : 0, pnl: tr ? +r.pnl : 0, ret_pct: tr ? +r.net_pct : 0}; }).sort((a,b) => b.date.localeCompare(a.date));
+    const avg = a => a.length ? a.reduce((t,x) => t+x, 0)/a.length : NaN, sg = v => isNaN(v) ? "–" : (v>0?"+":"") + fmt(v) + "%";
+    const st = rows => { const x = rows.map(r => +r.net_pct); let c = 0, pk = 0, dd = 0, sk = 0, ms = 0; const eq = [];
+      rows.forEach(r => { c += +r.pnl||0; eq.push({date: r.date, cum: c}); pk = Math.max(pk, c); dd = Math.min(dd, c-pk); if(+r.pnl < 0){ sk++; ms = Math.max(ms, sk); } else sk = 0; });
+      return {n: x.length, win: x.filter(v => v > 0).length/Math.max(1, x.length)*100, mean: avg(x), aw: avg(x.filter(v => v > 0)), al: avg(x.filter(v => v <= 0)), r1: avg(rows.map(r => +r.rank1_net_pct)),
+              t10: avg(rows.map(r => +r.top10_mean_pct)), ex: avg(rows.map(r => +r.excess_pct)), beat: rows.filter(r => +r.excess_pct > 0).length/Math.max(1, rows.length)*100, mdd: dd, pnl: c, streak: ms, eq}; };
+    const A = st(P), R = st(P.slice(-60)), last = P[P.length-1];
+    const cells = [["累積損益 (60 萬)", money(A.pnl) + " 元"], ["筆數 / 勝率", `${A.n} / ${Math.round(A.win)}%`], ["每筆期望值", sg(A.mean)], ["平均賺 / 平均賠", `${sg(A.aw)} / ${sg(A.al)}`],
+      ["最大回撤", money(A.mdd) + " 元"], ["最長連虧", A.streak + " 天"], ["同期 名單第 1 名 每筆", sg(A.r1)], ["同期 前 10 名平均 每筆", sg(A.t10)],
+      ["比前 10 名平均多 (每筆)", sg(A.ex)], ["贏過當天平均的天數", Math.round(A.beat) + "%"], [`近 ${R.n} 天 期望值 / 勝率`, `${sg(R.mean)} / ${Math.round(R.win)}%`], ["回測 (2024~ 樣本外)", "+0.97% / 58%"]];
+    $("histCards").innerHTML = cells.map(([k,val]) => `<div class="card"><div class="k">${k}</div><div class="v ${/^[+-]/.test(val) ? (val.startsWith("+")?"pos":"neg") : ""}" style="font-size:17px">${val}</div></div>`).join("") +
+      (last ? `<div class="card" style="grid-column:1/-1"><div class="k">最近一筆 ${last.date}: ${last.stock_id} ${last.name||""} (名單第 ${last.rank}, 跳空 ${sg(+last.gap_pct)}) 淨 ${sg(+last.net_pct)} · 當天第 1 名 ${sg(+last.rank1_net_pct)} · 前 10 名平均 ${sg(+last.top10_mean_pct)}</div></div>` : "");
+    drawEquity(A.eq); drawCalendar(D);
+    $("histMeta").textContent = `${all[0].date} ~ ${all[all.length-1].date} · 只做一支 (影子)`;
+    $("histBody").innerHTML = D.map(r => `<tr data-d="${r.date}" style="cursor:pointer"><td>${r.date.slice(5)}${r.no_trade ? " <span class='chip'>不交易</span>" : ""}</td><td>${r.n}</td><td>${r.wins}</td><td class="${pctCls(+r.pnl)}">${money(+r.pnl)}</td><td class="${pctCls(+r.ret_pct)}">${(+r.ret_pct>0?"+":"") + fmt(+r.ret_pct)}</td></tr>`).join("");
+    document.querySelectorAll("#histBody tr").forEach(tr => tr.onclick = () => showHistDay(tr.dataset.d));
+  }catch(e){ empty("尚無紀錄"); }
+}
 async function loadHistory(){
+  if(VARIANT === "pick1") return loadPick1History();
   const sfx = (VARIANT === SHADOW) ? "_" + SHADOW : "";
   try{
     const [daily, trades] = await Promise.all([fetchCsv(BASE + `history_daily${sfx}.csv`), fetchCsv(BASE + `history${sfx}.csv`)]);
@@ -320,19 +366,6 @@ async function loadHistory(){
       const j = REC && REC.variant === (VARIANT === SHADOW ? SHADOW : REC.variant) ? REC : await fetchJ(paperBase(VARIANT === SHADOW ? SHADOW : "main") + "reconcile.json");
       const k = j.by_kind || {}, lv = k["即時"], is = k["回放·訓練期"], pct = v => (v==null || isNaN(v)) ? "–" : ((v>0?"+":"") + fmt(v) + "%");
       if(lv) $("histCards").insertAdjacentHTML("beforeend", `<div class="card" style="grid-column:1/-1;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><div><div class="k">其中「即時」(實盤證據, ${lv.first || "–"} 起)</div><div class="v ${pctCls(lv.d1 && lv.d1.cum)}" style="font-size:17px">${pct(lv.d1 && lv.d1.cum)} <span class="k">${lv.trade_days} 天</span></div></div><div><div class="k">「回放·訓練期」(9 月, in-sample, 不算證據)</div><div class="v" style="font-size:17px;color:var(--muted)">${pct(is && is.d1 && is.d1.cum)} <span class="k">${is ? is.trade_days : 0} 天</span></div></div></div>`);
-    }catch(e){}
-    if(VARIANT !== SHADOW) try{   // 影子: 每天只做一支 (scripts/record_pick1.py → history_pick1.csv)
-      const P = (await fetchCsv(BASE + "history_pick1.csv")).filter(r => r.net_pct !== "" && r.net_pct != null).sort((a,b) => a.date.localeCompare(b.date));
-      if(P.length){
-        const avg = a => a.length ? a.reduce((t,x) => t+x, 0)/a.length : NaN, sg = v => isNaN(v) ? "–" : (v>0?"+":"") + fmt(v) + "%";
-        const st = rows => { const x = rows.map(r => +r.net_pct); let c = 0, pk = 0, dd = 0; rows.forEach(r => { c += +r.pnl||0; pk = Math.max(pk, c); dd = Math.min(dd, c-pk); });
-          return {n: x.length, win: x.filter(v => v > 0).length/x.length*100, mean: avg(x), aw: avg(x.filter(v => v > 0)), al: avg(x.filter(v => v <= 0)), r1: avg(rows.map(r => +r.rank1_net_pct)), t10: avg(rows.map(r => +r.top10_mean_pct)), ex: avg(rows.map(r => +r.excess_pct)), mdd: dd, pnl: c}; };
-        const A = st(P), R = st(P.slice(-60));
-        const cells = [["筆數 / 勝率", `${A.n} / ${Math.round(A.win)}%`], ["每筆期望值", sg(A.mean)], ["同期名單第 1 名", sg(A.r1)], ["比前 10 名平均多", sg(A.ex)],
-          ["平均賺 / 平均賠", `${sg(A.aw)} / ${sg(A.al)}`], ["累積損益 (60 萬)", money(A.pnl) + " 元"], ["最大回撤", money(A.mdd) + " 元"], [`近 ${R.n} 天 期望值 / 勝率`, `${sg(R.mean)} / ${Math.round(R.win)}%`]];
-        $("histCards").insertAdjacentHTML("beforeend", `<div class="card" style="grid-column:1/-1"><div class="k">影子・每天只做一支 (組合分數 = 名單排名 + 2×跳空, ${P[0].date} 起, 最新 ${P[P.length-1].date} 選 ${P[P.length-1].stock_id} ${P[P.length-1].name||""})</div></div>` +
-          cells.map(([k,val]) => `<div class="card"><div class="k">${k}</div><div class="v ${/^[+-]/.test(val) ? (val.startsWith("+")?"pos":"neg") : ""}" style="font-size:17px">${val}</div></div>`).join(""));
-      }
     }catch(e){}
     $("histBody").innerHTML = D.map(r => `<tr data-d="${r.date}" style="cursor:pointer"><td>${r.date.slice(5)}${r.no_trade ? " <span class='chip'>不交易</span>" : ""}</td><td>${r.n}</td><td>${r.wins}</td><td class="${pctCls(+r.pnl)}">${money(+r.pnl)}</td><td class="${pctCls(+r.ret_pct)}">${(+r.ret_pct>0?"+":"") + fmt(+r.ret_pct)}</td></tr>`).join("");
     document.querySelectorAll("#histBody tr").forEach(tr => tr.onclick = () => showHistDay(tr.dataset.d));
@@ -412,7 +445,7 @@ function pollFor(d){
   const stop = () => { clearInterval(pollTimer); pollTimer = null; setBusy(false); };
   const check = async () => {
     n++; const sec = Math.round((Date.now() - t0)/1000);
-    try{ const r = await fetch(BASE + sigName(d, VARIANT === "cmp" ? "main" : VARIANT) + "?t=" + Date.now(), {cache:"no-store"}); if(r.ok){ stop(); try{ localStorage.removeItem(pendingKey(d)); }catch(e){} load(d); return; } }catch(e){}
+    try{ const r = await fetch(BASE + sigName(d, baseV()) + "?t=" + Date.now(), {cache:"no-store"}); if(r.ok){ stop(); try{ localStorage.removeItem(pendingKey(d)); }catch(e){} load(d); return; } }catch(e){}
     let gh = ""; try{ const rr = await fetch(TRIGGER_URL + "/runs?n=3", {cache:"no-store"}); if(rr.ok){
       // 只看「這次觸發之後」建立的 run, 避免拿到舊的失敗紀錄
       const x = (await rr.json()).find(y => new Date(y.created_at).getTime() >= t0 - 90000 && y.conclusion !== "cancelled");   // 重複觸發被 GitHub 取消的不算
@@ -456,7 +489,7 @@ const ymd = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-$
 let stepSeq = 0;
 async function stepDay(dir){
   const cur = $("dateIn").value || lastLatest; if(!cur) return;
-  const seq = ++stepSeq, v = VARIANT === "cmp" ? "main" : VARIANT, max = ymd(new Date());
+  const seq = ++stepSeq, v = baseV(), max = ymd(new Date());
   const d = new Date(cur + "T00:00:00");
   for(let i = 0; i < 20; i++){
     d.setDate(d.getDate() + dir); const s = ymd(d);
