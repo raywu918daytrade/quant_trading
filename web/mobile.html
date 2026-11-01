@@ -353,6 +353,7 @@ async function loadPick1History(){   // 只做一支: scripts/record_pick1.py �
     $("histMeta").textContent = `${all[0].date} ~ ${all[all.length-1].date} · 只做一支 (影子)`;
     $("histBody").innerHTML = D.map(r => `<tr data-d="${r.date}" style="cursor:pointer"><td>${r.date.slice(5)}${r.no_trade ? " <span class='chip'>不交易</span>" : ""}</td><td>${r.n}</td><td>${r.wins}</td><td class="${pctCls(+r.pnl)}">${money(+r.pnl)}</td><td class="${pctCls(+r.ret_pct)}">${(+r.ret_pct>0?"+":"") + fmt(+r.ret_pct)}</td></tr>`).join("");
     document.querySelectorAll("#histBody tr").forEach(tr => tr.onclick = () => showHistDay(tr.dataset.d));
+    annotateFromHistory($("dateIn").value);   // 名單卡片上直接標出這天選中那支的結算結果
   }catch(e){ empty("尚無紀錄"); }
 }
 async function loadHistory(){
