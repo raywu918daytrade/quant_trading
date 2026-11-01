@@ -29,7 +29,10 @@ def refresh_d1(months_back=2):
     months = sorted({(today - pd.DateOffset(months=i)).strftime("%Y_%m") for i in range(months_back)})
     for d in ("data/raw/d1", "data/raw/meta", "data/processed"): (ROOT/d).mkdir(parents=True, exist_ok=True)
     for ym in months:
-        p = hf_hub_download(REPO, f"db/d1/{ym}.parquet", repo_type="dataset", force_download=True)
+        try: p = hf_hub_download(REPO, f"db/d1/{ym}.parquet", repo_type="dataset", force_download=True)
+        except Exception as ex:
+            if ym == months[-1]: print(f"d1 {ym} 尚未建立 (月初還沒有資料), 略過: {type(ex).__name__}"); continue   # 只容許「本月」還不存在
+            raise
         (ROOT/"data/raw/d1"/f"{ym}.parquet").write_bytes(Path(p).read_bytes()); print("updated d1", ym)
     p = hf_hub_download(REPO, "db/info/info.parquet", repo_type="dataset", force_download=True)
     (ROOT/"data/raw/meta/info.parquet").write_bytes(Path(p).read_bytes())
