@@ -13,6 +13,14 @@ ROOT = Path(__file__).resolve().parent.parent; REPO = "raywu918daytrade/daytrade
 BASE_URL = f"https://huggingface.co/datasets/{REPO}/resolve/main/db/signals/"
 COST, ENTRY_ADJ, K, SLIP, PEN, CAP = 0.0023, 0.0003, 0.08, 0.001, 0.07, 3_000_000
 
+def settle(row, pc):
+    """D1 近似結算一筆做空 (row 需 open/high/close/next_open; pc = 昨收) → (進場價, 出場價, 出場方式, 淨報酬). record_pick1 共用."""
+    entry = float(row.open)*(1+ENTRY_ADJ)
+    if row.high >= pc*(1+K) and row.open < pc*(1+K): exit_px = pc*(1+K)*(1+SLIP*3); reason = "forced"
+    elif row.close >= pc*1.0975: exit_px = float(row.next_open)*(1+PEN) if pd.notna(row.next_open) else float(row.close); reason = "lock" if pd.notna(row.next_open) else "lock_pending"
+    else: exit_px = float(row.close); reason = "close"
+    return entry, exit_px, reason, entry/exit_px - 1 - COST
+
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("--variant", default=CFG.MAIN_VARIANT, choices=CFG.VARIANTS); ap.add_argument("--dry", action="store_true"); a = ap.parse_args()
     sfx = CFG.suffix(a.variant); hist_name = f"history{sfx}.csv"; daily_name = f"history_daily{sfx}.csv"
@@ -44,11 +52,8 @@ def main():
             for p in j.get("picks", []):
                 key = (p["stock_id"], dt)
                 if key not in d1.index: continue
-                row = d1.loc[key]; pc = float(p["prev_close"]); entry = float(row.open)*(1+ENTRY_ADJ); lots = int(p["lots"]); a_ = entry*1000*lots
-                if row.high >= pc*(1+K) and row.open < pc*(1+K): exit_px = pc*(1+K)*(1+SLIP*3); reason = "forced"
-                elif row.close >= pc*1.0975: exit_px = float(row.next_open)*(1+PEN) if pd.notna(row.next_open) else float(row.close); reason = "lock" if pd.notna(row.next_open) else "lock_pending"
-                else: exit_px = float(row.close); reason = "close"
-                net = entry/exit_px - 1 - COST; pnl += a_*net; amt += a_
+                row = d1.loc[key]; pc = float(p["prev_close"]); lots = int(p["lots"])
+                entry, exit_px, reason, net = settle(row, pc); a_ = entry*1000*lots; pnl += a_*net; amt += a_
                 rows.append({"date": d, "stock_id": p["stock_id"], "name": p.get("name",""), "rank": p.get("rank"), "lots": lots, "amount": int(a_), "prev_close": pc, "entry": round(entry,2), "exit": round(exit_px,2), "high": float(row.high), "exit_reason": reason, "net_pct": round(net*100,2), "pnl": int(round(a_*net))})
         drow = {"date": d, "variant": a.variant, "no_trade": "|".join(j.get("no_trade", [])), "n": len(rows), "amount": int(amt), "wins": sum(1 for r in rows if r["pnl"]>0), "pnl": int(round(pnl)), "ret_pct": round(pnl/CAP*100, 3), "model": j.get("model",""), "source": j.get("source","")}
         hist += rows; daily.append(drow); print(f"  {d}: {len(rows)} 檔, 損益 {drow['pnl']:+,} 元 ({drow['ret_pct']:+.2f}%)" + (f" [不交易: {drow['no_trade']}]" if drow["no_trade"] else ""))

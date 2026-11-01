@@ -75,6 +75,31 @@ def series_stats(s):
             "win": float((s > 0).mean()), "worst": float(s.min()), "best": float(s.max()), "mdd": mdd,
             "t": float(s.mean() / s.std(ddof=1) * np.sqrt(len(s))) if len(s) > 2 and s.std(ddof=1) > 0 else None}
 
+def trade_stats(x):
+    """每筆淨報酬 (%) → 筆數/勝率/每筆期望值/平均賺/平均賠/賺賠比/最差筆/累計 MDD (以每筆等額加總)."""
+    x = pd.Series(x, dtype=float).dropna()
+    if not len(x): return {"n": 0}
+    w, l = x[x > 0], x[x <= 0]; cum = x.cumsum()
+    return {"n": int(len(x)), "win": float((x > 0).mean()), "mean": float(x.mean()), "avg_win": float(w.mean()) if len(w) else None, "avg_loss": float(l.mean()) if len(l) else None,
+            "payoff": float(w.mean() / -l.mean()) if len(w) and len(l) and l.mean() < 0 else None, "worst": float(x.min()), "cum": float(x.sum()),
+            "mdd": float((cum - cum.cummax()).min()), "t": float(x.mean() / x.std(ddof=1) * np.sqrt(len(x))) if len(x) > 2 and x.std(ddof=1) > 0 else None}
+ROLL = 60   # 滾動視窗 (交易日)
+
+def pick1_block(sigs):
+    """「每天只做一支」影子紀錄 (record_pick1.py → history_pick1.csv). 依日子類型分開, 另給最近 ROLL 天."""
+    P = read_csv("db/signals/history_pick1.csv")
+    if not len(P) or "net_pct" not in P.columns: return None
+    P = P[P.net_pct.notna()].copy()
+    def kind(d):
+        j = sigs.get(d) or {}; oos0 = model_oos_start(j.get("model"))
+        return KIND_LIVE if j.get("source") == "TWSE MIS" else (KIND_OOS if (oos0 is not None and pd.Timestamp(d) >= oos0) else KIND_IS)
+    P["kind"] = P.date.map(kind); res = {}
+    for k, X in [(KIND_LIVE, P[P.kind == KIND_LIVE]), ("即時+回放·樣本外", P[P.kind != KIND_IS]), (f"最近 {ROLL} 天 (全部)", P.tail(ROLL))]:
+        res[k] = {"pick": trade_stats(X.net_pct), "rank1": trade_stats(X.rank1_net_pct), "top10": trade_stats(X.top10_mean_pct), "excess": trade_stats(X.excess_pct),
+                  "first": X.date.min() if len(X) else None, "last": X.date.max() if len(X) else None}
+    res["recent"] = P.tail(20)[["date","kind","stock_id","name","rank","gap_pct","exit_reason","net_pct","rank1_net_pct","top10_mean_pct","excess_pct"]].astype(object).where(lambda z: z.notna(), None).to_dict("records")
+    return res
+
 def build(variant):
     sfx = CFG.suffix(variant); pp = "db/paper" + sfx
     dates = list_signal_dates(sfx)
@@ -195,7 +220,15 @@ def build(variant):
         by_kind[k] = {"days": int(len(X)), "trade_days": int(len(Xt)), "no_trade_days": int((X.no_trade != "").sum()),
                       "d1": series_stats(Xt.d1_ret_pct), "tick": series_stats(Xt.tick_ret_pct), "sim": series_stats(Xt.sim_ret_pct),
                       "first": X.date.min() if len(X) else None, "last": X.date.max() if len(X) else None}
-    out = {"as_of": dt.datetime.now().strftime("%Y-%m-%d %H:%M"), "variant": variant, "cap": CAP, "ref": REF, "gate_cfg": GATE,
+    live_set = set(L.date)
+    per_trade = {"d1": trade_stats(hist[hist.date.isin(live_set)].net_pct) if len(hist) else {"n": 0},
+                 "tick": trade_stats(TL.tick_net_pct) if len(TL) else {"n": 0}}
+    LR = L.tail(ROLL); rset = set(LR.date)
+    rolling = {"days": int(len(LR)), "first": LR.date.min() if len(LR) else None, "d1": series_stats(LR.d1_ret_pct), "tick": series_stats(LR.tick_ret_pct),
+               "d1_trade": trade_stats(hist[hist.date.isin(rset)].net_pct) if len(hist) else {"n": 0},
+               "tick_trade": trade_stats(TL[TL.date.isin(rset)].tick_net_pct) if len(TL) else {"n": 0}}
+    pick1 = pick1_block(sigs) if variant == CFG.MAIN_VARIANT else None
+    out = {"as_of": dt.datetime.now().strftime("%Y-%m-%d %H:%M"), "variant": variant, "per_trade": per_trade, "rolling": rolling, "pick1": pick1, "cap": CAP, "ref": REF, "gate_cfg": GATE,
            "gate": {"pass": n_pass == len(gate), "n_pass": n_pass, "n_total": len(gate), "items": gate,
                     "verdict": "六項全部通過: 可進入小部位真錢 (每檔 1 張) 再觀察" if n_pass == len(gate) else f"{n_pass}/{len(gate)} 通過, 繼續模擬"},
            "live": {"first_date": first_live, "days": live_days, "no_trade_days": int((L_all.no_trade != "").sum()), "tick": tick, "d1": d1, "sim": sim,
@@ -224,6 +257,34 @@ def write_md(D, T, out, path):
     P(f"- 每筆淨報酬 tick − D1: 平均 {f(lv['settle_bias_mean'], 3, True)}% (= 進場滑價造成的偏差), 中位絕對差 {f(lv['settle_diff_median'], 3)}% (高 ATR 股一分鐘內的正常波動); 出場價 |tick − D1| 中位 {f(lv['exit_diff_median'], 3)}%, 出場方式不一致 {f(None if lv['reason_mismatch'] is None else lv['reason_mismatch']*100, 0)}%")
     P(f"- 永豐模擬成交 vs tick: 每筆 |模擬 − tick| 中位數 {f(lv['sim_tick_diff_median'], 3)}% ({lv['trades']} 筆) — 模擬撮合不可靠, 只列不計")
     P(f"- 操作事件: 最近 {GATE['ops_window']} 個即時日 {lv['ops_recent']} 件, 全部 {lv['ops_total']} 件\n")
+    def trow(nm, t):
+        return {"": nm, "筆數": t.get("n", 0), "勝率": f((t.get("win") or 0)*100, 0) + "%" if t.get("n") else "–", "每筆期望值%": f(t.get("mean"), 3, True),
+                "平均賺%": f(t.get("avg_win"), 2, True), "平均賠%": f(t.get("avg_loss"), 2, True), "賺賠比": f(t.get("payoff"), 2), "最差筆%": f(t.get("worst"), 2, True), "t值": f(t.get("t"), 2)}
+    TC = ["", "筆數", "勝率", "每筆期望值%", "平均賺%", "平均賠%", "賺賠比", "最差筆%", "t值"]
+    pt, rl = out["per_trade"], out["rolling"]
+    P("### 每筆期望值 (即時日子, 每筆淨報酬)")
+    P(md_table([trow("D1 近似結算", pt["d1"]), trow("真實 tick", pt["tick"]),
+                {"": "回測參考", "筆數": "", "勝率": f"{REF['win_rate']*100:.0f}%", "每筆期望值%": f"+{REF['per_trade_pct']:.2f}"}], TC))
+    P(f"### 最近 {ROLL} 個即時交易日 (滾動; 實際 {rl['days']} 天, 自 {rl['first'] or '–'})")
+    rows = []
+    for nm, s, t in (("D1 近似結算", rl["d1"], rl["d1_trade"]), ("真實 tick", rl["tick"], rl["tick_trade"])):
+        rows.append({"來源": nm, "日均%": f(s.get("mean"), 3, True), "日勝率": f((s.get("win") or 0)*100, 0) + "%" if s.get("n") else "–", "最差日%": f(s.get("worst"), 2, True), "MDD%": f(s.get("mdd"), 2),
+                     "每筆期望值%": f(t.get("mean"), 3, True), "每筆勝率": f((t.get("win") or 0)*100, 0) + "%" if t.get("n") else "–"})
+    P(md_table(rows, ["來源", "日均%", "日勝率", "最差日%", "MDD%", "每筆期望值%", "每筆勝率"]))
+    P(f"警戒: 每筆期望值連續 2~3 個月接近 0、每筆勝率 < 50%、或 MDD 超過 {GATE['mdd_pct']}% → 暫停檢查 (回測每筆 +{REF['per_trade_pct']:.2f}%、勝率 {REF['win_rate']*100:.0f}%)\n")
+    pk = out.get("pick1")
+    if pk:
+        P("## 2b. 影子: 每天只做一支 (組合分數 = 模型排名 + 2 × 今日跳空, 前 10 名候選選 1; 60 萬; D1 結算)")
+        P("「比前 10 名平均多」= 選股規則本身的價值, 長期 > 0 才代表規則有用 (回測樣本外 +0.46%/筆, 模型第 1 名 +0.19%)。")
+        rows = []
+        for k in [x for x in pk if x != "recent"]:
+            v = pk[k]
+            if not v["pick"].get("n"): continue
+            rows += [{**trow(f"{k}: 選中那支", v["pick"]), "期間": f"{v['first']} ~ {v['last']}"}, {**trow("　同期 模型第 1 名", v["rank1"]), "期間": ""},
+                     {**trow("　同期 前 10 名平均", v["top10"]), "期間": ""}, {**trow("　選中 − 前 10 名平均", v["excess"]), "期間": ""}]
+        P(md_table(rows, TC + ["期間"]))
+        P(f"- 最大回撤 (每筆 60 萬加總, % 對 60 萬): " + "；".join(f"{k} {f(pk[k]['pick'].get('mdd'), 2)}%" for k in pk if k != "recent" and pk[k]["pick"].get("n")))
+        P("\n最近 20 天:"); P(md_table(pk["recent"], ["date","kind","stock_id","name","rank","gap_pct","exit_reason","net_pct","rank1_net_pct","top10_mean_pct","excess_pct"]))
     P("## 3. 依日子類型 (D1 近似結算)")
     rows = []
     for k, s in out["by_kind"].items():

@@ -321,6 +321,19 @@ async function loadHistory(){
       const k = j.by_kind || {}, lv = k["即時"], is = k["回放·訓練期"], pct = v => (v==null || isNaN(v)) ? "–" : ((v>0?"+":"") + fmt(v) + "%");
       if(lv) $("histCards").insertAdjacentHTML("beforeend", `<div class="card" style="grid-column:1/-1;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><div><div class="k">其中「即時」(實盤證據, ${lv.first || "–"} 起)</div><div class="v ${pctCls(lv.d1 && lv.d1.cum)}" style="font-size:17px">${pct(lv.d1 && lv.d1.cum)} <span class="k">${lv.trade_days} 天</span></div></div><div><div class="k">「回放·訓練期」(9 月, in-sample, 不算證據)</div><div class="v" style="font-size:17px;color:var(--muted)">${pct(is && is.d1 && is.d1.cum)} <span class="k">${is ? is.trade_days : 0} 天</span></div></div></div>`);
     }catch(e){}
+    if(VARIANT !== SHADOW) try{   // 影子: 每天只做一支 (scripts/record_pick1.py → history_pick1.csv)
+      const P = (await fetchCsv(BASE + "history_pick1.csv")).filter(r => r.net_pct !== "" && r.net_pct != null).sort((a,b) => a.date.localeCompare(b.date));
+      if(P.length){
+        const avg = a => a.length ? a.reduce((t,x) => t+x, 0)/a.length : NaN, sg = v => isNaN(v) ? "–" : (v>0?"+":"") + fmt(v) + "%";
+        const st = rows => { const x = rows.map(r => +r.net_pct); let c = 0, pk = 0, dd = 0; rows.forEach(r => { c += +r.pnl||0; pk = Math.max(pk, c); dd = Math.min(dd, c-pk); });
+          return {n: x.length, win: x.filter(v => v > 0).length/x.length*100, mean: avg(x), aw: avg(x.filter(v => v > 0)), al: avg(x.filter(v => v <= 0)), r1: avg(rows.map(r => +r.rank1_net_pct)), t10: avg(rows.map(r => +r.top10_mean_pct)), ex: avg(rows.map(r => +r.excess_pct)), mdd: dd, pnl: c}; };
+        const A = st(P), R = st(P.slice(-60));
+        const cells = [["筆數 / 勝率", `${A.n} / ${Math.round(A.win)}%`], ["每筆期望值", sg(A.mean)], ["同期名單第 1 名", sg(A.r1)], ["比前 10 名平均多", sg(A.ex)],
+          ["平均賺 / 平均賠", `${sg(A.aw)} / ${sg(A.al)}`], ["累積損益 (60 萬)", money(A.pnl) + " 元"], ["最大回撤", money(A.mdd) + " 元"], [`近 ${R.n} 天 期望值 / 勝率`, `${sg(R.mean)} / ${Math.round(R.win)}%`]];
+        $("histCards").insertAdjacentHTML("beforeend", `<div class="card" style="grid-column:1/-1"><div class="k">影子・每天只做一支 (組合分數 = 名單排名 + 2×跳空, ${P[0].date} 起, 最新 ${P[P.length-1].date} 選 ${P[P.length-1].stock_id} ${P[P.length-1].name||""})</div></div>` +
+          cells.map(([k,val]) => `<div class="card"><div class="k">${k}</div><div class="v ${/^[+-]/.test(val) ? (val.startsWith("+")?"pos":"neg") : ""}" style="font-size:17px">${val}</div></div>`).join(""));
+      }
+    }catch(e){}
     $("histBody").innerHTML = D.map(r => `<tr data-d="${r.date}" style="cursor:pointer"><td>${r.date.slice(5)}${r.no_trade ? " <span class='chip'>不交易</span>" : ""}</td><td>${r.n}</td><td>${r.wins}</td><td class="${pctCls(+r.pnl)}">${money(+r.pnl)}</td><td class="${pctCls(+r.ret_pct)}">${(+r.ret_pct>0?"+":"") + fmt(+r.ret_pct)}</td></tr>`).join("");
     document.querySelectorAll("#histBody tr").forEach(tr => tr.onclick = () => showHistDay(tr.dataset.d));
     if($("liveBox").style.display === "none") annotateFromHistory($("dateIn").value);

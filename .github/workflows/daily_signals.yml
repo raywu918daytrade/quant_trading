@@ -71,6 +71,7 @@ jobs:
         run: |
           python3 scripts/record_results.py || true
           python3 scripts/record_results.py --variant base || true
+          python3 scripts/record_pick1.py || true
       - name: Reconcile settled lists vs paper fills vs real ticks, go-live gate (db/paper/reconcile.*)
         if: always() && github.event.inputs.date == ''
         env:
