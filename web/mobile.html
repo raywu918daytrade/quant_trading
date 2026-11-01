@@ -239,14 +239,26 @@ async function loadReconcile(){
     $("recDaily").innerHTML = live.map(r => `<tr><td>${r.date.slice(5)}${r.no_trade ? " <span class='muted' style='font-size:11px'>不交易</span>" : ""}</td><td class="${pctCls(r.d1_ret_pct)}">${pct(r.d1_ret_pct)}</td><td class="${pctCls(r.tick_ret_pct)}">${pct(r.tick_ret_pct)}</td><td class="${pctCls(r.sim_ret_pct)}">${pct(r.sim_ret_pct)}</td><td>${pct(r.entry_slip_tick_pct)}</td><td style="white-space:normal;text-align:left;font-size:11px">${r.ops || ""}</td></tr>`).join("") || `<tr><td colspan="6" class="muted">尚無即時日子</td></tr>`;
   }catch(e){ REC = null; $("recBox").style.display = "none"; }
 }
+// 只做一支沒有永豐模擬下單: 不顯示正式組的 6 支, 只說明並列出這支若剛好也在正式組裡的模擬成交
+async function pick1Paper(date, PAPER){
+  $("liveBox").style.display = "none"; $("recBox").style.display = "none"; $("paperDetails").style.display = "none";
+  $("paperDate").textContent = date || ""; const p = CUR_PICKS[0], pct = v => (v==null || v==="" || isNaN(v)) ? "–" : ((+v>0?"+":"") + fmt(+v) + "%");
+  let cards = [["只做一支是影子策略, 沒有在永豐模擬下單", "結果看下方「紀錄」(日線結算, 每天 1 支 60 萬)"]];
+  if(p && date){
+    const rows = await fetchCsv(PAPER + `${date}_trades.csv`), r = rows.find(x => x.stock_id === p.stock_id);
+    cards.push(r ? [`${p.stock_id} ${p.name||""} 也在正式組: 模擬淨 / tick 淨`, `${pct(r.sim_net_pct)} / ${pct(r.tick_net_pct)}`] : [`${p.stock_id} ${p.name||""}`, "不在正式組名單內, 沒有模擬成交"]);
+  }
+  $("paperCards").innerHTML = cards.map(([k,v]) => `<div class="card" style="grid-column:1/-1"><div class="k">${k}</div><div class="v ${/^[+-]/.test(v) ? (v.startsWith("+")?"pos":"neg") : ""}" style="font-size:16px">${v}</div></div>`).join("");
+}
 async function loadPaper(date){
   const PAPER = paperBase(baseV());
+  if(VARIANT === "pick1") return pick1Paper(date, PAPER);
   loadLive(date); if(VARIANT === "cmp") loadCompare(date); loadReconcile();
   try{
     const r = await fetch(PAPER + (date ? `${date}_summary.json` : "latest.json") + "?t=" + Date.now(), {cache:"no-store"});
     if(!r.ok) throw 0;
     const s = await r.json();
-    $("paperDate").textContent = (VARIANT === "pick1" ? "(只做一支沒有模擬下單, 以下為正式組) " : "") + s.date + (s.no_trade && s.no_trade.length ? " · 今日不交易" : "");
+    $("paperDate").textContent = s.date + (s.no_trade && s.no_trade.length ? " · 今日不交易" : "");
     const pct = v => v==null ? "–" : ((v>0?"+":"") + fmt(v) + "%");
     $("paperCards").innerHTML = [
       ["成交 / 名單", `${s.n_filled} / ${s.n_picks}`], ["模擬平均淨報酬", pct(s.sim_avg_net_pct)],
