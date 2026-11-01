@@ -189,4 +189,44 @@ for _, r in IC.head(5).iterrows():
     c = r.col; worst = pick(-np.sign(r["IC IS"])*T[c]); rows.append(row(f"每天 {r.name} {'最小' if r['IC IS'] > 0 else '最大'} 那支", worst))
 P_(pd.DataFrame(rows).set_index("規則")[SHOW].round(2).to_markdown())
 
+# ---------- 7. 跟現行多支比: 同樣 300 萬 ----------
+CAP = 3_000_000
+def alloc(score, n, per):
+    """每天依 score 由高到低, 最多 n 支, 每支最多 per 元 (整張), 錢不夠買 1 張就跳下一支. 回傳每日報酬 (對 300 萬)."""
+    x = T.assign(_s=score).dropna(subset=["_s"]).sort_values(["date","_s","rank"], ascending=[True, False, True]); recs = {}
+    for dt, gg in x.groupby("date", sort=False):
+        cash = CAP; tot = 0.0; k = 0
+        for e, nt in zip(gg.entry.values, gg.net.values):
+            lc = e*1000; lots = int(min(per, cash)//lc)
+            if lots < 1: continue
+            a = lots*lc; cash -= a; tot += a*nt; k += 1
+            if k >= n: break
+        recs[dt] = tot/CAP
+    return pd.Series(recs)
+def pst(r, oos):
+    d = DAYS[(DAYS.year >= SPLIT) == oos]; r = r.reindex(d, fill_value=0.0); eq = (1+r).cumprod(); mo = r.groupby(r.index.to_period("M")).apply(lambda z: (1+z).prod()-1)
+    return {"日淨%": r.mean()*100, "賺錢天數%": (r > 0).mean()*100, "Sharpe": r.mean()/r.std()*np.sqrt(245), "MDD%": (eq/eq.cummax()-1).min()*100,
+            "最差月%": mo.min()*100, "最差日%": r.min()*100, "年化(萬)": r.mean()*245*CAP/1e4}
+P_("\n## 7. 跟現行多支比較 (同樣 300 萬本金, 每支 60 萬上限, 整張; 日淨/年化都是對 300 萬)")
+P_("現行 = 模型前 10 名、每支 60 萬, 錢用完就停 (同 44_loser_profile)。「一支 300 萬」= 全部押一支 (流動性/滑價未計, 實際會更差)")
+sc_rank = -T["rank"].astype(float); sc_best = combo({c: cs[c] for c in top3}) if cs else sc_rank
+CASES = [("現行: 模型前 10 名, 每支 60 萬", sc_rank, 10, 600_000),
+         ("一支: 模型第 1 名, 60 萬 (其餘閒置)", sc_rank, 1, 600_000),
+         ("一支: 組合分數第 1, 60 萬 (其餘閒置)", sc_best, 1, 600_000),
+         ("一支: 模型第 1 名, 全押 300 萬", sc_rank, 1, CAP),
+         ("一支: 組合分數第 1, 全押 300 萬", sc_best, 1, CAP),
+         ("組合分數前 3 名, 每支 100 萬", sc_best, 3, 1_000_000),
+         ("組合分數前 5 名, 每支 60 萬", sc_best, 5, 600_000),
+         ("組合分數排序前 10 名, 每支 60 萬", sc_best, 10, 600_000)]
+rows = []; yr = {}
+for nm, sc, n, per in CASES:
+    r = alloc(sc, n, per); a, b = pst(r, False), pst(r, True)
+    rows.append({"做法": nm, **{f"{k} IS": v for k, v in a.items()}, **{f"{k} OOS": v for k, v in b.items()}})
+    rr = r.reindex(DAYS, fill_value=0.0); yr[nm] = rr.groupby(rr.index.year).mean()*245*CAP/1e4
+P_(f"組合分數 = {', '.join(FEAT[c] for c in top3) if cs else '無'} 的當日百分位加總 (樣本內選出)")
+K = pd.DataFrame(rows).set_index("做法")
+P_("\n樣本外 2024~:"); P_(K[[c for c in K.columns if c.endswith("OOS")]].rename(columns=lambda c: c[:-4]).round(2).to_markdown())
+P_("\n樣本內 2020~23:"); P_(K[[c for c in K.columns if c.endswith(" IS")]].rename(columns=lambda c: c[:-3]).round(2).to_markdown())
+P_("\n各年年化 (萬, 對 300 萬):"); P_(pd.DataFrame(yr).T.round(0).to_markdown())
+
 (OUT/"pick_one.md").write_text("\n".join(L)); print("\n".join(L))
