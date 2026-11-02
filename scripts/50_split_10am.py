@@ -8,6 +8,11 @@
 整本規則:
   S5 10:00 整本淨 > 0 → 全平, 否則全部抱到收盤
   S6 10 點前整本淨 ≥ Y% (占 300 萬) → 全平
+10 點後賠的單改成「賺回損失就平」(回本即平, 沒回本照現行到收盤):
+  S7 10:00 有賺就平 + 賠的每支回到淨 ≥ 0 就平那支
+  S7b 10:00 有賺就平 + 賠的那幾支合計回到淨 ≥ 0 就一起平
+  S7c 10:00 有賺的照抱到收盤, 只有賠的回本就平 (單看 10 點後這一半)
+  S7d 10 點前停利 4% + 10:00 賠的每支回本就平
 市價平倉 = 判斷分鐘的下一分鐘開盤 ×(1+0.1%). X / Y / 時間只用 2020~23 挑, 2024~ 樣本外. 輸出 stats/split_10am.md"""
 import importlib.util, numpy as np, pandas as pd
 from pathlib import Path
@@ -26,6 +31,10 @@ def rules():
     r["S4 對照: 10:00 賠的砍掉, 賺的抱"] = ("s4", T10, None)
     r["S5 10:00 整本有賺就全平"] = ("s5", T10, 0.0)
     for y in (0.005, 0.01, 0.015, 0.02): r[f"S6 10 點前整本賺 ≥{y*100:.1f}% 就全平"] = ("s6", y, None)
+    r["S7 10:00 有賺就平 + 賠的每支回本就平"] = ("s7", "one", "win")
+    r["S7b 10:00 有賺就平 + 賠的合計回本就一起平"] = ("s7", "group", "win")
+    r["S7c 10:00 賺的抱, 賠的每支回本就平"] = ("s7", "one", None)
+    r["S7d 10 點前停利 4% + 賠的每支回本就平"] = ("s7", "one", "tp4")
     return r
 RULES = rules()
 
@@ -79,6 +88,25 @@ def sim_day(trs, bars):
                 for i in range(n):
                     if live(i, T): g[i] = fx(i, T)
                 tg = True
+        elif kind == "s7":
+            los = [i for i in range(n) if act[i] and live(i, T10) and U[i, T10] - BASE < 0]
+            for i in range(n):
+                if q == "win" and live(i, T10) and U[i, T10] - BASE > 0: g[i] = fx(i, T10); tg = True
+                if q == "tp4":
+                    ll = np.nan_to_num(Lo[i, T0:T10], nan=1e18); a = np.where(ll <= E[i]*0.96)[0]
+                    if len(a) and T0 + a[0] < tex[i]: g[i] = 1/0.96 - 1; tg = True; los = [j for j in los if j != i]
+            rng = np.arange(T10+1, TPRE-1)
+            if p == "one":
+                for i in los:
+                    w = np.where((U[i, rng] - BASE >= 0) & (rng < tex[i]))[0]
+                    if len(w): g[i] = fx(i, int(rng[w[0]])); tg = True
+            elif los:
+                grp = (W[los, None]*(U[los][:, rng] - BASE)).sum(0); w = np.where(grp >= 0)[0]
+                if len(w):
+                    T = int(rng[w[0]])
+                    for i in los:
+                        if live(i, T): g[i] = fx(i, T)
+                    tg = True
         res[nm] = g; trig[nm] = tg
     diag = [{"u10": U[i, T10] - BASE, "after": gx[i] - fx(i, T10), "net": gx[i] - BASE, "w": W[i]} for i in range(n) if act[i] and live(i, T10)]
     return {nm: (W*(g - BASE)).sum() for nm, g in res.items()}, trig, diag, book[T10], (W*(gx - BASE)).sum()
@@ -129,6 +157,10 @@ if __name__ == "__main__":
     P()
     for lab, idx in ((f"樣本內 2020~{SPLIT-1}", D_IS), (f"樣本外 {SPLIT}~", D_OOS), ("全期", days)):
         P(f"## 2. 規則比較 — {lab} ({len(idx)} 天)"); P(pd.DataFrame({nm: stats(nm, idx) for nm in names}).T.round(3).to_markdown()); P()
-    key = ["現行", "S1 10:00 有賺就平, 賠的抱到收盤", "S2 10 點前停利 2%", "S3 10 點前停利 2% + 10:00 有賺就平", "S4 對照: 10:00 賠的砍掉, 賺的抱", "S5 10:00 整本有賺就全平", "S6 10 點前整本賺 ≥1.0% 就全平"]
+    key = ["現行", "S1 10:00 有賺就平, 賠的抱到收盤", "S2 10 點前停利 2%", "S3 10 點前停利 2% + 10:00 有賺就平", "S4 對照: 10:00 賠的砍掉, 賺的抱", "S5 10:00 整本有賺就全平", "S6 10 點前整本賺 ≥1.0% 就全平", "S7 10:00 有賺就平 + 賠的每支回本就平", "S7c 10:00 賺的抱, 賠的每支回本就平"]
+    G["be"] = G.u10 < 0
+    for lab, m in (("樣本內", ~G.oos), ("樣本外", G.oos)):
+        x = G[m & G.be]; P(f"- {lab}: 10:00 在賠的 {len(x)} 筆, 抱到收盤最後轉賺的 {(x.net > 0).mean()*100:.0f}%")
+    P()
     P("## 3. 各年日淨%"); P((DR[key].groupby(DR.index.year).mean()*100).round(3).to_markdown())
     (OUT/"split_10am.md").write_text("\n".join(L)); print("\n".join(L))
