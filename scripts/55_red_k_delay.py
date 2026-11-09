@@ -1,4 +1,6 @@
-"""開盤 5 分紅 K → 延後放空 的混合版. 樣本 = trailing_stop_trades_sr.parquet (sr 每日前 10 檔, 2020~2026), M1 逐分鐘.
+"""開盤紅 K → 延後放空 的混合版.
+⚠ 2026-11-09 更正: 用「09:00~09:04 五分 K」決定要不要延後有偷看 — 09:01 要下單時還不知道 09:04 收盤, 黑 K 那批不可能 09:01 先進。
+   這種版本只留作對照 (標「偷看」); 可實行的版本用「09:00 第一分鐘 K」(09:01:00 下單時已收完) 決定. 樣本 = trailing_stop_trades_sr.parquet (sr 每日前 10 檔, 2020~2026), M1 逐分鐘.
 開盤 5 分 K = 09:00 開 o0 ~ 09:04 收 c4; 紅 K 幅度 = (c4 − o0) / 昨收.
 規則: 紅 K 幅度 ≥ X 的檔延到 09:05 (或 09:10) 那一分鐘開盤 (−0.1% 滑價) 才空, 其他照現行 09:01 進.
 出場同現行: +8% 強制回補 (+0.3%) / 13:24 ≥ +6% 回補 / 收盤競價 (收盤 ≥ +9.75% 鎖死 → 隔日開盤 +7%).
@@ -9,7 +11,7 @@ from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor
 ROOT = Path(os.environ.get("QT_ROOT", Path(__file__).resolve().parent.parent)); OUT = ROOT / "stats"
 BASE, SLIP, K, PEN, CAP, PER_STOCK, MAX_N, PRE_K, SPLIT = 0.0023, 0.001, 0.08, 0.07, 3_000_000, 600_000, 10, 0.06, 2024
-DELAYS = (5, 10)
+DELAYS = (3, 5, 10)
 
 def simulate_month(args):
     f, trades = args
@@ -32,7 +34,9 @@ def simulate_month(args):
             return auction
         w5 = t < 5
         if not w5.any(): continue
+        w1 = t == 0
         res = {"stock_id": tr.stock_id, "date": tr.date, "rank": tr.rank, "entry": tr.entry, "redk": (c[w5][-1] - o[w5][0]) / pc,
+               "red1": (c[w1][-1] - o[w1][0]) / pc if w1.any() else np.nan,
                "g0": tr.entry / exit_from(4) - 1}
         for d in DELAYS:
             idx = np.where(t >= d)[0]
@@ -69,13 +73,16 @@ if __name__ == "__main__":
     for d in DELAYS:
         RULES.append((f"全部延到 09:{d:02d}", S[f"g{d}"]))
         for X in (0.0, 0.005, 0.01, 0.02):
-            m = S.redk > X
-            RULES.append((f"紅K>{X*100:.1f}% → 09:{d:02d}, 其他 09:01", S[f"g{d}"].where(m, S.g0)))
+            m = S.red1 > X
+            RULES.append((f"可實行: 09:00 一分 K 紅>{X*100:.1f}% → 09:{d:02d}, 其他 09:01", S[f"g{d}"].where(m, S.g0)))
+    for X in (0.005, 0.01):
+        RULES.append((f"偷看 (不可實行): 五分 K 紅>{X*100:.1f}% → 09:05", S["g5"].where(S.redk > X, S.g0)))
     L = []; P = lambda s="": L.append(str(s))
     P(f"# 開盤 5 分紅 K 延後放空 (sr 每日前 10 檔, {S.date.min():%Y-%m-%d}~{S.date.max():%Y-%m-%d}, {len(S)} 筆)"); P()
-    P("- 紅 K 幅度 = (09:04 收 − 09:00 開) / 昨收; 紅 K ≥ X 的檔延到 09:05 / 09:10 開盤 (−0.1%) 才空, 其他照現行 09:01. 延後前已摸 +8% 的不進")
+    P("- 可實行版: 09:00 第一分鐘 K (收 − 開) / 昨收 > X 的檔延到 09:03 / 09:05 / 09:10 開盤 (−0.1%) 才空, 其他照現行 09:01. 延後前已摸 +8% 的不進")
+    P("- ⚠ 「偷看」版用 09:00~09:04 五分 K 決定, 但 09:01 下單時還不知道 09:04 收盤, 實盤做不到, 只當對照")
     P("- 出場同現行; 300 萬配置; 「差 t」= 改變的那幾筆, 延後 − 09:01 每筆差的 t 值 (|t|>2 才算不是運氣)")
-    P(f"- 紅 K 占比: >0 {(S.redk > 0).mean()*100:.1f}%, >0.5% {(S.redk > 0.005).mean()*100:.1f}%, >1% {(S.redk > 0.01).mean()*100:.1f}%, >2% {(S.redk > 0.02).mean()*100:.1f}%"); P()
+    P(f"- 一分 K 紅占比: >0 {(S.red1 > 0).mean()*100:.1f}%, >0.5% {(S.red1 > 0.005).mean()*100:.1f}%, >1% {(S.red1 > 0.01).mean()*100:.1f}%, >2% {(S.red1 > 0.02).mean()*100:.1f}%"); P()
     rows = []
     for nm, gs in RULES:
         D = alloc(gs); s = D.ret; ch = (gs != S.g0) | gs.isna(); diff = (gs - S.g0)[ch].fillna(-(S.g0[ch] - BASE))   # 沒進場 → 少了那筆
@@ -86,13 +93,13 @@ if __name__ == "__main__":
             ss = s[mm]; r[f"日淨% {lab}"] = ss.mean() * 100; r[f"Sharpe {lab}"] = ss.mean() / ss.std() * np.sqrt(245)
         rows.append(r)
     P("## 規則比較"); P(pd.DataFrame(rows).set_index("規則").round(3).to_markdown()); P()
-    P("## 紅 K 幅度分組: 09:01 vs 09:05 vs 09:10 每筆淨% (未進場不算)")
-    S["bin"] = pd.cut(S.redk, [-1, -0.01, 0, 0.005, 0.01, 0.02, 1], labels=["黑 ≤−1%", "黑 −1~0%", "紅 0~0.5%", "紅 0.5~1%", "紅 1~2%", "紅 >2%"])
+    P("## 09:00 一分 K 幅度分組: 09:01 vs 延後 每筆淨% (未進場不算)")
+    S["bin"] = pd.cut(S.red1, [-1, -0.01, 0, 0.005, 0.01, 0.02, 1], labels=["黑 ≤−1%", "黑 −1~0%", "紅 0~0.5%", "紅 0.5~1%", "紅 1~2%", "紅 >2%"])
     G = S.groupby("bin", observed=True).agg(筆數=("g0", "size"), **{"09:01": ("g0", lambda x: (x - BASE).mean() * 100)},
                                              **{f"09:{d:02d}": (f"g{d}", lambda x: (x.dropna() - BASE).mean() * 100) for d in DELAYS},
                                              **{f"09:{d:02d} 沒進%": (f"g{d}", lambda x: x.isna().mean() * 100) for d in DELAYS})
     P(G.round(3).to_markdown()); P()
-    P("## 各年 日淨% (現行 vs 最佳混合)")
-    best = max(rows[1:], key=lambda r: r["日淨%"])["規則"]; gs = dict(RULES)[best]
+    P("## 各年 日淨% (現行 vs 最佳可實行混合)")
+    best = max([r for r in rows[1:] if r["規則"].startswith("可實行")], key=lambda r: r["日淨%"])["規則"]; gs = dict(RULES)[best]
     Y = pd.DataFrame({"現行": alloc(S.g0).ret, best: alloc(gs).ret}); P((Y.groupby(Y.index.year).mean() * 100).round(3).T.to_markdown()); P()
     (OUT / "red_k_delay.md").write_text("\n".join(L), encoding="utf-8"); print("\n".join(L))
