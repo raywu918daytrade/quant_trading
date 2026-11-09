@@ -84,11 +84,6 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: python3 scripts/build_bars.py || true
-      - name: Red-K delay shadow (history_redk.csv, needs bars)
-        if: always() && github.event.inputs.date == ''
-        env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: python3 scripts/record_redk.py || true
       - name: Upload signals as run artifact (backup)
         if: always()
         uses: actions/upload-artifact@v4
